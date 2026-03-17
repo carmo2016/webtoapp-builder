@@ -2,7 +2,7 @@
 <resources>
 
     <!-- موضوع WebToApp Builder - بدون شريط عنوان -->
-    <style name="Theme.WebToApp" parent="Theme.MaterialComponents.Light.NoActionBar">
+    <style name="AppTheme" parent="Theme.MaterialComponents.Light.NoActionBar">
         <!-- اللون الأساسي -->
         <item name="colorPrimary">@color/webtoapp_primary</item>
         <item name="colorPrimaryVariant">@color/webtoapp_primary_dark</item>
