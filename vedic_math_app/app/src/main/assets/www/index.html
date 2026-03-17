@@ -1,407 +1,1933 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYSTEM 22: Elite Protocol</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>IOTESP · Smart Control</title>
+    <link rel="manifest" href="/manifest.json">
     
-    <!-- React & ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Fontes modernas -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
     
-    <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Ícones (Font Awesome via CDN) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- QR Code library -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     
-    <!-- Tailwind Config for Custom Colors -->
     <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'void-black': '#050505',
-                        'cold-blue': '#0ea5e9',
-                        'ice-white': '#e2e8f0',
-                        'danger-red': '#ef4444',
-                        'system-gray': '#1e293b',
-                    },
-                    fontFamily: {
-                        mono: ['"Courier New"', 'Courier', 'monospace'],
-                    },
-                    animation: {
-                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        // ===== CONFIGURAÇÕES =====
+        const API_BASE_URL = 'https://5525fgdz0c.execute-api.us-east-1.amazonaws.com/default/IOTESP_Lambda';
+        
+        // ===== DETECÇÃO DE AMBIENTE =====
+        const isMedianApp = typeof window.NativeDatastore !== 'undefined' || 
+                            navigator.userAgent.includes('Median') || 
+                            document.referrer.includes('median.co');
+        
+        console.log('Ambiente:', isMedianApp ? 'Median.co App' : 'Navegador');
+        
+        // ===== SISTEMA DE ARMAZENAMENTO HÍBRIDO =====
+        const Storage = {
+            async set(key, value) {
+                return new Promise(async (resolve) => {
+                    try {
+                        if (isMedianApp && window.NativeDatastore) {
+                            window.NativeDatastore.setItem(key, String(value), (result) => {
+                                console.log(`Native save ${key}:`, result);
+                                resolve(true);
+                            });
+                        } else {
+                            localStorage.setItem(key, value);
+                            resolve(true);
+                        }
+                    } catch (e) {
+                        console.warn('Storage set error:', e);
+                        resolve(false);
                     }
-                }
+                });
+            },
+            
+            async get(key) {
+                return new Promise((resolve) => {
+                    try {
+                        if (isMedianApp && window.NativeDatastore) {
+                            window.NativeDatastore.getItem(key, (value) => {
+                                resolve(value);
+                            });
+                        } else {
+                            resolve(localStorage.getItem(key));
+                        }
+                    } catch (e) {
+                        console.warn('Storage get error:', e);
+                        resolve(null);
+                    }
+                });
+            },
+            
+            async remove(key) {
+                return new Promise((resolve) => {
+                    try {
+                        if (isMedianApp && window.NativeDatastore) {
+                            window.NativeDatastore.removeItem(key, (result) => {
+                                resolve(true);
+                            });
+                        } else {
+                            localStorage.removeItem(key);
+                            resolve(true);
+                        }
+                    } catch (e) {
+                        console.warn('Storage remove error:', e);
+                        resolve(false);
+                    }
+                });
+            }
+        };
+        
+        let clienteEmail = '';
+        let clienteSenha = '';
+        let clientePin = '';
+        let dispositivosCliente = [];
+        let modoCadastro = false;
+    </script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #3b82f6;
+            --secondary: #7c3aed;
+            --success: #10b981;
+            --success-dark: #059669;
+            --danger: #ef4444;
+            --danger-dark: #dc2626;
+            --warning: #f59e0b;
+            --dark: #0f172a;
+            --dark-soft: #1e293b;
+            --light: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --alexa: #00a1c9;
+            --alexa-dark: #0086a8;
+            
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+            
+            --radius-sm: 8px;
+            --radius: 12px;
+            --radius-md: 16px;
+            --radius-lg: 24px;
+            --radius-xl: 32px;
+            --radius-full: 9999px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, rgba(0,0,0,0.85), rgba(0,0,0,0.7)), 
+                        url('https://i.ibb.co/jvVZ0b3x/Rainmaker.jpg') no-repeat center center fixed;
+            background-size: cover;
+            color: var(--dark);
+            line-height: 1.5;
+            min-height: 100vh;
+            padding: 16px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header moderno */
+        .app-header {
+            margin-bottom: 24px;
+        }
+
+        .app-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff, #e0e7ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 4px;
+            letter-spacing: -0.5px;
+        }
+
+        .app-header .subtitle {
+            color: var(--gray-300);
+            font-size: 14px;
+            font-weight: 400;
+            letter-spacing: 0.5px;
+        }
+
+        /* Card de login/registro */
+        .auth-card {
+            max-width: 420px;
+            margin: 40px auto;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            border-radius: var(--radius-xl);
+            padding: 32px 24px;
+            box-shadow: var(--shadow-xl);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .auth-card h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--gray-800);
+            margin-bottom: 8px;
+        }
+
+        .auth-card p {
+            color: var(--gray-500);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        /* Inputs modernos */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--gray-400);
+            font-size: 16px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 16px 16px 16px 48px;
+            background: var(--gray-100);
+            border: 2px solid transparent;
+            border-radius: var(--radius-lg);
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--gray-800);
+            transition: all 0.2s ease;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+        }
+
+        .input-field::placeholder {
+            color: var(--gray-400);
+            font-weight: 400;
+        }
+
+        /* PIN inputs */
+        .pin-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin: 16px 0;
+        }
+
+        .pin-digit {
+            width: 56px;
+            height: 64px;
+            background: var(--gray-100);
+            border: 2px solid transparent;
+            border-radius: var(--radius);
+            font-size: 24px;
+            font-weight: 700;
+            text-align: center;
+            color: var(--primary);
+            transition: all 0.2s ease;
+        }
+
+        .pin-digit:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+        }
+
+        /* Botões modernos */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 16px 24px;
+            border-radius: var(--radius-lg);
+            font-weight: 600;
+            font-size: 15px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            box-shadow: var(--shadow-md);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+        }
+
+        .btn-outline:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-alexa {
+            background: var(--alexa);
+            color: white;
+            box-shadow: 0 4px 10px rgba(0,161,201,0.3);
+        }
+
+        .btn-alexa:hover {
+            background: var(--alexa-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,161,201,0.4);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: var(--danger-dark);
+        }
+
+        .btn-link {
+            background: transparent;
+            color: var(--gray-500);
+            padding: 8px;
+            font-size: 14px;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        .btn-link:hover {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: var(--radius);
+            width: auto;
+            text-transform: none;
+        }
+
+        /* Header do dashboard */
+        .dashboard-header {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            border-radius: var(--radius-xl);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: var(--shadow);
+        }
+
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .user-avatar {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            box-shadow: var(--shadow);
+        }
+
+        .user-avatar:hover {
+            transform: scale(1.05);
+        }
+
+        .user-info-text {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .user-info-label {
+            font-size: 12px;
+            color: var(--gray-500);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .user-info-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--gray-800);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* App card (igual ao index) */
+        .app-link {
+            text-decoration: none;
+            display: block;
+        }
+
+        .app-card {
+            background: white;
+            border-radius: 30px;
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid #eef2f6;
+            transition: transform 0.2s;
+        }
+
+        .app-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .app-icone {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .app-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .app-info h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--dark);
+            margin: 0;
+            line-height: 1.2;
+        }
+
+        .app-info p {
+            font-size: 11px;
+            color: var(--alexa);
+            font-weight: 500;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .app-info p i {
+            font-size: 8px;
+        }
+
+        /* QR Code card */
+        .qrcode-card {
+            background: white;
+            border-radius: var(--radius-xl);
+            padding: 32px;
+            margin-bottom: 24px;
+            text-align: center;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .qrcode-card h3 {
+            font-size: 20px;
+            color: var(--gray-800);
+            margin-bottom: 8px;
+        }
+
+        .qrcode-card p {
+            color: var(--gray-500);
+            margin-bottom: 24px;
+        }
+
+        .qrcode-container {
+            background: var(--gray-100);
+            padding: 24px;
+            border-radius: var(--radius);
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .qrcode-info {
+            background: var(--primary-light);
+            color: white;
+            padding: 16px;
+            border-radius: var(--radius);
+            font-size: 14px;
+            text-align: left;
+        }
+
+        .qrcode-info strong {
+            display: inline-block;
+            min-width: 60px;
+        }
+
+        /* Grid de dispositivos */
+        .devices-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .devices-header h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .devices-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .device-card {
+            background: white;
+            border-radius: var(--radius-xl);
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            box-shadow: var(--shadow);
+        }
+
+        .device-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--primary);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .device-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .device-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, var(--primary-light), var(--primary-dark));
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+        }
+
+        .device-info {
+            flex: 1;
+        }
+
+        .device-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--gray-800);
+            margin-bottom: 4px;
+        }
+
+        .device-id {
+            font-size: 12px;
+            color: var(--gray-500);
+            font-family: monospace;
+        }
+
+        .device-stats {
+            display: flex;
+            gap: 16px;
+            color: var(--gray-600);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .device-stats i {
+            margin-right: 6px;
+            color: var(--primary);
+        }
+
+        /* Pinos (relés) */
+        .device-detail-card {
+            background: white;
+            border-radius: var(--radius-xl);
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+        }
+
+        .device-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--gray-800);
+            margin-bottom: 8px;
+        }
+
+        .device-meta {
+            display: flex;
+            gap: 20px;
+            color: var(--gray-500);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .pins-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 16px;
+        }
+
+        .pin-card {
+            background: var(--gray-100);
+            border-radius: var(--radius-lg);
+            padding: 16px;
+            transition: all 0.2s;
+        }
+
+        .pin-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .pin-gpio {
+            background: white;
+            color: var(--primary);
+            width: 44px;
+            height: 44px;
+            border-radius: var(--radius);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .pin-name-input {
+            background: white;
+            border: 2px solid transparent;
+            border-radius: var(--radius);
+            padding: 8px 12px;
+            font-size: 14px;
+            font-weight: 500;
+            width: 140px;
+            transition: all 0.2s;
+        }
+
+        .pin-name-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+        }
+
+        .pin-badge {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: var(--radius-full);
+            background: white;
+            color: var(--primary);
+        }
+
+        .pin-state {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: var(--radius-full);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .state-on {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success-dark);
+        }
+
+        .state-off {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger-dark);
+        }
+
+        .pin-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .btn-pin {
+            flex: 1;
+            padding: 12px;
+            border-radius: var(--radius);
+            font-weight: 600;
+            font-size: 13px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-on {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-on:hover {
+            background: var(--success-dark);
+        }
+
+        .btn-off {
+            background: var(--gray-400);
+            color: white;
+        }
+
+        .btn-off:hover {
+            background: var(--gray-500);
+        }
+
+        .btn-save-name {
+            background: transparent;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            padding: 6px 10px;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-save-name:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-reset {
+            background: var(--gray-500);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: var(--radius-full);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-reset:hover {
+            background: var(--gray-600);
+        }
+
+        .back-button {
+            background: transparent;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            padding: 10px 20px;
+            border-radius: var(--radius-full);
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .back-button:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* Modais */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        }
+
+        .modal-card {
+            background: white;
+            border-radius: var(--radius-xl);
+            padding: 32px;
+            max-width: 420px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-xl);
+        }
+
+        .modal-card h3 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--gray-800);
+            margin-bottom: 20px;
+        }
+
+        /* Feedback messages */
+        .feedback-message {
+            padding: 16px;
+            border-radius: var(--radius);
+            margin: 16px 0;
+            font-size: 14px;
+            font-weight: 500;
+            display: none;
+            animation: slideIn 0.3s;
+        }
+
+        .feedback-error {
+            background: #fee2e2;
+            color: var(--danger-dark);
+            border-left: 4px solid var(--danger);
+        }
+
+        .feedback-success {
+            background: #d1fae5;
+            color: var(--success-dark);
+            border-left: 4px solid var(--success);
+        }
+
+        .feedback-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid var(--warning);
+        }
+
+        .toast-success {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            color: var(--gray-800);
+            padding: 12px 20px;
+            border-radius: var(--radius-full);
+            box-shadow: var(--shadow-lg);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 500;
+            z-index: 9999;
+            animation: slideInRight 0.3s;
+            border-left: 4px solid var(--success);
+        }
+
+        .toast-success i {
+            color: var(--success);
+            font-size: 20px;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
             }
         }
-    </script>
 
-    <style>
-        body {
-            background-color: #020617;
-            color: #e2e8f0;
-            font-family: 'Courier New', Courier, monospace;
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
         }
-        ::-webkit-scrollbar {
-            width: 8px;
+
+        /* Loading */
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--gray-200);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
         }
-        ::-webkit-scrollbar-track {
-            background: #0f172a; 
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
-        ::-webkit-scrollbar-thumb {
-            background: #1e293b; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #334155; 
-        }
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(30, 41, 59, 0.8);
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
-        }
-        .glow-text {
-            text-shadow: 0 0 10px rgba(14, 165, 233, 0.5);
-        }
-        .crt-line {
-            width: 100%;
-            height: 2px;
-            background: rgba(14, 165, 233, 0.1);
-            position: fixed;
-            animation: scanline 5s linear infinite;
-            pointer-events: none;
-            z-index: 50;
-        }
-        @keyframes scanline {
-            0% { top: -10%; }
-            100% { top: 110%; }
+
+        /* Responsividade */
+        @media (max-width: 640px) {
+            body { padding: 12px; }
+            
+            .dashboard-header {
+                flex-direction: column;
+                gap: 12px;
+                align-items: flex-start;
+            }
+            
+            .header-actions {
+                width: 100%;
+                justify-content: space-between;
+            }
+            
+            .devices-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .pin-container {
+                gap: 6px;
+            }
+            
+            .pin-digit {
+                width: 48px;
+                height: 56px;
+                font-size: 20px;
+            }
+            
+            .toast-success {
+                left: 20px;
+                right: 20px;
+                width: auto;
+            }
         }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+    <div class="container">
+        <!-- Header do app -->
+        <div class="app-header">
+            <h1>IOTESP</h1>
+            <p class="subtitle">SMART CONTROL</p>
+        </div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-
-        const AudioEngine = () => {
-            const [isPlaying, setIsPlaying] = useState(false);
-            const audioCtxRef = useRef(null);
-            const nodeRef = useRef(null);
-
-            const toggleNoise = () => {
-                if (isPlaying) {
-                    audioCtxRef.current.close();
-                    setIsPlaying(false);
-                } else {
-                    const AudioContext = window.AudioContext || window.webkitAudioContext;
-                    const ctx = new AudioContext();
-                    audioCtxRef.current = ctx;
-
-                    const bufferSize = 4096;
-                    const brownNoise = (function() {
-                        var lastOut = 0;
-                        var node = ctx.createScriptProcessor(bufferSize, 1, 1);
-                        node.onaudioprocess = function(e) {
-                            var output = e.outputBuffer.getChannelData(0);
-                            for (var i = 0; i < bufferSize; i++) {
-                                var white = Math.random() * 2 - 1;
-                                output[i] = (lastOut + (0.02 * white)) / 1.02;
-                                lastOut = output[i];
-                                output[i] *= 3.5;
-                            }
-                        }
-                        return node;
-                    })();
-
-                    brownNoise.connect(ctx.destination);
-                    nodeRef.current = brownNoise;
-                    setIsPlaying(true);
-                }
-            };
-
-            return { isPlaying, toggleNoise };
-        };
-
-        const System22 = () => {
-            const [view, setView] = useState('dashboard');
-            const [streak, setStreak] = useState(0);
-            const [lastCheckIn, setLastCheckIn] = useState(null);
-            const [patterns, setPatterns] = useState([]);
-            const [timer, setTimer] = useState(0);
-            const [isTimerRunning, setIsTimerRunning] = useState(false);
-            const { isPlaying: isNoiseOn, toggleNoise } = AudioEngine();
-
-            useEffect(() => {
-                const savedStreak = localStorage.getItem('s22_streak');
-                const savedLastCheckIn = localStorage.getItem('s22_lastCheck');
-                const savedPatterns = localStorage.getItem('s22_patterns');
-
-                if (savedStreak) setStreak(parseInt(savedStreak));
-                if (savedLastCheckIn) setLastCheckIn(savedLastCheckIn);
-                if (savedPatterns) setPatterns(JSON.parse(savedPatterns));
-            }, []);
-
-            useEffect(() => {
-                localStorage.setItem('s22_patterns', JSON.stringify(patterns));
-            }, [patterns]);
-
-            useEffect(() => {
-                let interval = null;
-                if (isTimerRunning && timer > 0) {
-                    interval = setInterval(() => {
-                        setTimer(timer - 1);
-                    }, 1000);
-                } else if (timer === 0 && isTimerRunning) {
-                    setIsTimerRunning(false);
-                    const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-sci-fi-system-check-963.mp3');
-                    audio.play().catch(e => console.log("Audio play failed"));
-                }
-                return () => clearInterval(interval);
-            }, [isTimerRunning, timer]);
-
-            const handleCheckIn = (success) => {
-                const today = new Date().toDateString();
-                if (lastCheckIn === today) return;
-
-                if (success) {
-                    const newStreak = streak + 1;
-                    setStreak(newStreak);
-                    localStorage.setItem('s22_streak', newStreak);
-                } else {
-                    setStreak(0);
-                    localStorage.setItem('s22_streak', 0);
-                }
-                setLastCheckIn(today);
-                localStorage.setItem('s22_lastCheck', today);
-            };
-
-            const addLog = (text, type) => {
-                const newPattern = {
-                    id: Date.now(),
-                    date: new Date().toLocaleString('ar-MA'),
-                    text: text,
-                    type: type
-                };
-                setPatterns([newPattern, ...patterns]);
-            };
-
-            const startTimer = (minutes) => {
-                setTimer(minutes * 60);
-                setIsTimerRunning(true);
-            };
-
-            const formatTime = (seconds) => {
-                const mins = Math.floor(seconds / 60);
-                const secs = seconds % 60;
-                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-            };
-
-            const Dashboard = () => (
-                <div className="space-y-6 animate-fade-in">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="glass-panel p-4 rounded-sm border-l-4 border-cold-blue">
-                            <h3 className="text-xs text-gray-400 uppercase tracking-widest">Protocol 22 Status</h3>
-                            <div className="mt-2 flex items-baseline gap-2">
-                                <span className="text-4xl font-mono font-bold text-cold-blue glow-text">{streak}</span>
-                                <span className="text-sm text-gray-500">/ 22 DAYS</span>
-                            </div>
-                            <div className="w-full bg-system-gray h-1 mt-2">
-                                <div className="bg-cold-blue h-1 transition-all duration-500" style={{ width: `${Math.min((streak / 22) * 100, 100)}%` }}></div>
-                            </div>
+        <!-- TELA DE LOGIN/CADASTRO -->
+        <div id="email-screen">
+            <div class="auth-card">
+                <h2>Bem-vindo</h2>
+                <p>Faça login ou crie sua conta</p>
+                
+                <!-- Mensagens de feedback -->
+                <div id="mensagem-feedback" class="feedback-message"></div>
+                
+                <div class="input-group">
+                    <div class="input-wrapper">
+                        <i class="fas fa-envelope input-icon"></i>
+                        <input type="email" id="email-input" class="input-field" placeholder="seu@email.com">
+                    </div>
+                    
+                    <div class="input-wrapper">
+                        <i class="fas fa-lock input-icon"></i>
+                        <input type="password" id="senha-input" class="input-field" placeholder="senha (6 dígitos)" maxlength="6" pattern="\d*" inputmode="numeric">
+                    </div>
+                    
+                    <!-- Campos de cadastro -->
+                    <div id="cadastro-fields" style="display: none;">
+                        <div class="input-wrapper">
+                            <i class="fas fa-lock input-icon"></i>
+                            <input type="password" id="confirmar-senha-input" class="input-field" placeholder="confirmar senha" maxlength="6" pattern="\d*" inputmode="numeric">
                         </div>
-                        <div className="glass-panel p-4 rounded-sm border-r-4 border-white">
-                             <h3 className="text-xs text-gray-400 uppercase tracking-widest">Identity Level</h3>
-                             <div className="mt-2 text-xl font-bold">
-                                {streak < 7 ? "PROJECT: ZOMBIE" : streak < 21 ? "PROJECT: AWAKENING" : "ELITE: SOVEREIGN"}
-                             </div>
-                             <p className="text-xs text-gray-500 mt-1">
-                                {streak < 7 ? "المراقب يحاول السيطرة..." : "السيستم يعمل بكفاءة."}
-                             </p>
+                        
+                        <p style="text-align: left; color: var(--gray-600); font-size: 14px; margin: 8px 0;">
+                            <i class="fas fa-shield-alt" style="color: var(--primary);"></i>
+                            PIN de recuperação (4 dígitos)
+                        </p>
+                        
+                        <div class="pin-container">
+                            <input type="text" id="pin1" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'pin2')">
+                            <input type="text" id="pin2" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'pin3')">
+                            <input type="text" id="pin3" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'pin4')">
+                            <input type="text" id="pin4" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'confirmar')">
+                        </div>
+                        
+                        <div id="erro-confirmacao" class="feedback-message feedback-error" style="display: none;">
+                            as senhas não conferem
                         </div>
                     </div>
-
-                    <div className="glass-panel p-6 rounded-sm">
-                        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-                            <span className="w-2 h-2 bg-cold-blue rounded-full animate-pulse"></span>
-                            تقرير الصباح (Morning Report)
-                        </h2>
-                        {lastCheckIn === new Date().toDateString() ? (
-                            <div className="text-center py-4 text-green-500 border border-green-900/30 bg-green-900/10 rounded">
-                                تم تسجيل البيانات لهذا اليوم. انتظر الغد.
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <p className="text-sm text-gray-400">هل استيقظت قبل 05:05؟ هل الهاتف بقي خارج الغرفة؟</p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <button 
-                                        onClick={() => handleCheckIn(true)}
-                                        className="py-3 border border-cold-blue text-cold-blue hover:bg-cold-blue hover:text-black transition-colors font-bold"
-                                    >
-                                        نعم (تأكيد السيطرة)
-                                    </button>
-                                    <button 
-                                        onClick={() => {
-                                            handleCheckIn(false);
-                                            addLog("فشل بروتوكول الصباح. تم تصفير العداد.", "failure");
-                                        }}
-                                        className="py-3 border border-danger-red text-danger-red hover:bg-danger-red hover:text-white transition-colors font-bold"
-                                    >
-                                        لا (إعادة ضبط)
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-
-            const DeepWork = () => (
-                <div className="flex flex-col items-center justify-center h-full space-y-8 animate-fade-in">
-                    <div className="text-center space-y-2">
-                        <h2 className="text-2xl font-bold tracking-widest text-cold-blue glow-text">DEEP WORK CHAMBER</h2>
-                        <p className="text-xs text-gray-500">العزلة هي بوابة العظمة</p>
-                    </div>
-
-                    <div className="text-8xl font-mono font-bold tracking-tighter text-white tabular-nums">
-                        {formatTime(timer)}
-                    </div>
-
-                    {!isTimerRunning ? (
-                        <div className="flex gap-4">
-                            <button onClick={() => startTimer(25)} className="px-6 py-2 border border-gray-600 hover:border-white transition-all">25m</button>
-                            <button onClick={() => startTimer(50)} className="px-6 py-2 border border-gray-600 hover:border-white transition-all">50m</button>
-                            <button onClick={() => startTimer(90)} className="px-6 py-2 border border-gray-600 hover:border-white transition-all">90m</button>
-                        </div>
-                    ) : (
-                        <div className="text-center animate-pulse-slow text-danger-red">
-                            <p>لا يوجد زر إيقاف.</p>
-                            <p className="text-xs mt-2">إما أن تنهي الوقت، أو تغلق الصفحة وتعلن الهزيمة.</p>
-                        </div>
-                    )}
-
-                    <button 
-                        onClick={toggleNoise}
-                        className={`mt-8 px-8 py-4 border rounded-sm transition-all flex items-center gap-3 ${isNoiseOn ? 'bg-cold-blue text-black border-cold-blue' : 'border-gray-600 text-gray-400 hover:text-white'}`}
-                    >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
-                        {isNoiseOn ? "BROWN NOISE ACTIVE" : "ACTIVATE NOISE SHIELD"}
+                    
+                    <button class="btn btn-primary" onclick="fazerLogin()">
+                        <i class="fas fa-sign-in-alt"></i>
+                        entrar
+                    </button>
+                    
+                    <button class="btn btn-outline" onclick="toggleCadastro()" id="btn-cadastrar">
+                        <i class="fas fa-user-plus"></i>
+                        cadastrar
+                    </button>
+                    
+                    <button class="btn btn-link" onclick="mostrarRecuperarSenha()">
+                        <i class="fas fa-key"></i>
+                        esqueci minha senha
                     </button>
                 </div>
-            );
+            </div>
+        </div>
 
-            const Logs = () => {
-                const [input, setInput] = useState("");
-
-                const handleSubmit = (e) => {
-                    e.preventDefault();
-                    if (!input.trim()) return;
-                    addLog(input, "intel");
-                    setInput("");
-                };
-
-                return (
-                    <div className="h-full flex flex-col space-y-4 animate-fade-in">
-                        <div className="glass-panel p-4 rounded-sm">
-                            <h2 className="text-lg font-bold mb-2">الصندوق الأسود (Pattern Recognition)</h2>
-                            <p className="text-xs text-gray-400 mb-4">سجل الملاحظات، الدوافع، ولحظات الضعف. حول الألم إلى بيانات.</p>
-                            <form onSubmit={handleSubmit} className="flex gap-2">
-                                <input 
-                                    type="text" 
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    placeholder="اكتب الملاحظة هنا..."
-                                    className="flex-1 bg-black/50 border border-gray-700 p-2 text-sm focus:border-cold-blue outline-none text-white"
-                                />
-                                <button type="submit" className="bg-white/10 px-4 py-2 hover:bg-cold-blue hover:text-black transition-colors">تسجيل</button>
-                            </form>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                            {patterns.length === 0 && <p className="text-center text-gray-600 mt-10">لا توجد بيانات (No Data).</p>}
-                            {patterns.map(p => (
-                                <div key={p.id} className={`p-3 border-l-2 text-sm font-mono ${p.type === 'failure' ? 'border-danger-red bg-red-900/10' : 'border-cold-blue bg-blue-900/5'}`}>
-                                    <div className="text-xs text-gray-500 mb-1">{p.date}</div>
-                                    <div className="text-gray-300">{p.text}</div>
-                                </div>
-                            ))}
-                        </div>
+        <!-- DASHBOARD PRINCIPAL -->
+        <div id="dashboard-screen" style="display: none;">
+            <!-- Header do dashboard -->
+            <div class="dashboard-header">
+                <div class="user-section">
+                    <div class="user-avatar" onclick="mostrarPerfil()">
+                        <i class="fas fa-user"></i>
                     </div>
-                );
-            };
-
-            const Protocol = () => (
-                <div className="glass-panel p-6 rounded-sm h-full overflow-y-auto animate-fade-in text-justify">
-                    <h2 className="text-2xl font-bold text-cold-blue mb-6 border-b border-gray-800 pb-2">THE ELITE MANIFESTO</h2>
-                    <div className="space-y-6 text-sm leading-relaxed text-gray-300 font-mono">
-                        <p><strong className="text-white">1. السيادة المطلقة:</strong> أنا لست جسدي. أنا المراقب. الجسد آلة بيولوجية تحتاج للترويض، وليس للتفاوض.</p>
-                        <p><strong className="text-white">2. التنفيذ البارد:</strong> الشعور لا يهم. الرغبة لا تهم. الفعل هو الحقيقة الوحيدة. افعل ما يجب فعله بغض النظر عن الطقس الداخلي.</p>
-                        <p><strong className="text-white">3. الموت أو التطور:</strong> العودة لمنطقة الراحة ليست خياراً، بل انتحاراً. السفن أُحرقت.</p>
-                        <p><strong className="text-white">4. قانون الصمت:</strong> الحديث يضيع الطاقة. الصمت يبني الضغط. استخدم الضغط كوقود.</p>
-                        <p><strong className="text-white">5. 05:00 صباحاً:</strong> هذا هو الوقت الذي يُقسم فيه العالم إلى أسياد وعبيد. كن مستيقظاً حين ينامون.</p>
-                        <div className="mt-8 pt-4 border-t border-gray-800 text-center text-xs text-gray-500">
-                            SYSTEM V1.0 // DESIGNED FOR THE GRAND LAB RAT
-                        </div>
+                    <div class="user-info-text">
+                        <span class="user-info-label">DADOS DO USUÁRIO</span>
+                        <span class="user-info-name"> </span>
                     </div>
                 </div>
-            );
+                <div class="header-actions">
+                    <!-- CARD DA ALEXA IGUALZINHO AO INDEX - HABILITAR SKILL -->
+                    <a href="amzn://apps/android?asin=B0GBXWW82S" 
+                       onclick="window.location.href='https://alexa.amazon.com.br/spa/index.html#skills/dp/B0GBXWW82S'; return false;" 
+                       class="app-link">
+                        <div class="app-card">
+                            <img src="https://i.ibb.co/FkFKkmm8/alexa.png" alt="Alexa App" class="app-icone">
+                            <div class="app-info">
+                                <h3>Alexa</h3>
+                                <p><i class="fas fa-play"></i> Habilitar Skill</p>
+                            </div>
+                        </div>
+                    </a>
+                    <button class="btn btn-small btn-danger" onclick="fazerLogout()">
+                        <i class="fas fa-sign-out-alt"></i>
+                        sair
+                    </button>
+                </div>
+            </div>
 
-            return (
-                <div className="min-h-screen flex flex-col max-w-md mx-auto relative overflow-hidden">
-                    <div className="crt-line"></div>
+            <!-- QR CODE INICIAL -->
+            <div id="qrcode-inicial" class="qrcode-card" style="display: none;">
+                <h3>🔐 Suas Credenciais</h3>
+                <p>Guarde este QR code com segurança</p>
+                
+                <div class="qrcode-container">
+                    <div id="qrcode-inicial-img"></div>
+                </div>
+                
+                <div class="qrcode-info">
+                    <p><strong>Email:</strong> <span id="qrcode-email"></span></p>
+                    <p><strong>Senha:</strong> <span id="qrcode-senha"></span></p>
+                    <p><strong>PIN:</strong> <span id="qrcode-pin"></span></p>
+                </div>
+                
+                <button class="btn btn-primary" onclick="fecharQRCodeInicial()" style="margin-top: 20px;">
+                    <i class="fas fa-arrow-right"></i>
+                    continuar para dispositivos
+                </button>
+            </div>
+
+            <!-- LISTA DE DISPOSITIVOS -->
+            <div id="devices-screen" style="display: none;">
+                <div class="devices-header">
+                    <h2><i class="fas fa-microchip" style="margin-right: 8px;"></i> MEUS DISPOSITIVOS</h2>
+                </div>
+                
+                <div id="loading" class="loading" style="display: none; text-align: center; padding: 40px;">
+                    <div class="loading-spinner"></div>
+                    <p style="color: var(--gray-300); margin-top: 16px;">carregando dispositivos...</p>
+                </div>
+
+                <div id="devices-container" class="devices-list" style="display: none;"></div>
+            </div>
+
+            <!-- DETALHE DO DISPOSITIVO -->
+            <div id="device-screen" style="display: none;">
+                <button class="back-button" onclick="voltarParaLista()">
+                    <i class="fas fa-arrow-left"></i>
+                    voltar
+                </button>
+                
+                <div id="device-loading" style="text-align: center; padding: 40px; display: none;">
+                    <div class="loading-spinner"></div>
+                    <p style="color: var(--gray-300); margin-top: 16px;">carregando...</p>
+                </div>
+
+                <div id="device-detail" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PERFIL -->
+    <div id="perfil-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <h3><i class="fas fa-user-circle" style="color: var(--primary); margin-right: 8px;"></i> Dados do Usuário</h3>
+            
+            <div style="background: var(--gray-100); padding: 20px; border-radius: var(--radius); margin-bottom: 20px;">
+                <p style="margin: 12px 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-envelope" style="color: var(--primary); width: 24px;"></i>
+                    <strong>Email:</strong> <span id="perfil-email"></span>
+                </p>
+                <p style="margin: 12px 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-lock" style="color: var(--primary); width: 24px;"></i>
+                    <strong>Senha:</strong> <span id="perfil-senha"></span>
+                </p>
+                <p style="margin: 12px 0; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-shield-alt" style="color: var(--primary); width: 24px;"></i>
+                    <strong>PIN:</strong> <span id="perfil-pin"></span>
+                </p>
+            </div>
+            
+            <!-- LINK DA ALEXA NO MODAL PERFIL - COM HABILITAR SKILL -->
+            <a href="amzn://apps/android?asin=B0GBXWW82S" 
+               onclick="window.location.href='https://alexa.amazon.com.br/spa/index.html#skills/dp/B0GBXWW82S'; return false;"
+               class="btn btn-outline" 
+               style="margin-bottom: 10px; text-decoration: none; color: var(--alexa); display: flex; align-items: center; justify-content: center; gap: 8px; border-color: var(--alexa);">
+                <img src="https://i.ibb.co/FkFKkmm8/alexa.png" alt="Alexa" style="width: 20px; height: 20px; border-radius: 4px;">
+                <span>Habilitar Skill na Alexa</span>
+            </a>
+            
+            <button class="btn btn-outline" onclick="mostrarQRCodeModal()" style="margin-bottom: 10px;">
+                <i class="fas fa-qrcode"></i>
+                mostrar QR code
+            </button>
+            
+            <button class="btn btn-primary" onclick="fecharModal()">
+                <i class="fas fa-times"></i>
+                fechar
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL QR CODE -->
+    <div id="qrcode-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <h3><i class="fas fa-qrcode" style="color: var(--primary);"></i> QR Code</h3>
+            
+            <div style="background: var(--gray-100); padding: 24px; border-radius: var(--radius); text-align: center; margin-bottom: 20px;">
+                <div id="qrcode-modal-img"></div>
+            </div>
+            
+            <div id="qrcode-modal-info" style="background: var(--primary-light); color: white; padding: 16px; border-radius: var(--radius); margin-bottom: 20px;">
+            </div>
+            
+            <button class="btn btn-primary" onclick="fecharQRCodeModal()">
+                <i class="fas fa-times"></i>
+                fechar
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL RECUPERAR SENHA -->
+    <div id="recuperar-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <h3><i class="fas fa-key" style="color: var(--primary);"></i> Recuperar Acesso</h3>
+            
+            <div id="recuperar-passo1">
+                <p style="color: var(--gray-600); margin-bottom: 20px;">digite seu email e PIN de recuperação</p>
+                
+                <div class="input-wrapper" style="margin-bottom: 16px;">
+                    <i class="fas fa-envelope input-icon"></i>
+                    <input type="email" id="recuperar-email" class="input-field" placeholder="seu@email.com">
+                </div>
+                
+                <p style="text-align: left; color: var(--gray-600); font-size: 14px; margin-bottom: 8px;">
+                    <i class="fas fa-shield-alt" style="color: var(--primary);"></i>
+                    PIN de 4 dígitos
+                </p>
+                
+                <div class="pin-container">
+                    <input type="text" id="rec-pin1" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'rec-pin2')">
+                    <input type="text" id="rec-pin2" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'rec-pin3')">
+                    <input type="text" id="rec-pin3" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'rec-pin4')">
+                    <input type="text" id="rec-pin4" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric">
+                </div>
+                
+                <button class="btn btn-primary" onclick="verificarPinRecuperar()" style="margin-top: 20px;">
+                    <i class="fas fa-check"></i>
+                    verificar
+                </button>
+                
+                <button class="btn btn-link" onclick="fecharModalRecuperar()">
+                    cancelar
+                </button>
+            </div>
+            
+            <div id="recuperar-passo2" style="display: none;">
+                <div id="recuperar-info" style="background: var(--success); color: white; padding: 20px; border-radius: var(--radius); margin-bottom: 20px;">
+                </div>
+                
+                <button class="btn btn-primary" onclick="fecharModalRecuperarEVoltar()">
+                    <i class="fas fa-arrow-left"></i>
+                    voltar ao login
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== FUNÇÕES DE UTILIDADE =====
+        function moveToNext(current, nextId) {
+            if (current.value.length === 1) {
+                const next = document.getElementById(nextId);
+                if (next) next.focus();
+            }
+        }
+
+        function mostrarFeedback(mensagem, tipo) {
+            const feedbackEl = document.getElementById('mensagem-feedback');
+            feedbackEl.textContent = mensagem;
+            feedbackEl.className = `feedback-message feedback-${tipo}`;
+            feedbackEl.style.display = 'block';
+            
+            setTimeout(() => {
+                feedbackEl.style.display = 'none';
+            }, 4000);
+        }
+
+        function mostrarSucesso(mensagem) {
+            const toast = document.createElement('div');
+            toast.className = 'toast-success';
+            toast.innerHTML = `<i class="fas fa-check-circle"></i> ${mensagem}`;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 2000);
+        }
+
+        // ===== GERENCIAMENTO DE USUÁRIOS =====
+        function carregarUsuarios() {
+            try {
+                if (isMedianApp && window.NativeDatastore) {
+                    const usuariosStr = localStorage.getItem('iotesp_usuarios') || '{}';
+                    return JSON.parse(usuariosStr);
+                } else {
+                    return JSON.parse(localStorage.getItem('iotesp_usuarios') || '{}');
+                }
+            } catch (e) {
+                console.error('Erro ao carregar usuários:', e);
+                return {};
+            }
+        }
+
+        function salvarUsuarios(usuarios) {
+            try {
+                const usuariosStr = JSON.stringify(usuarios);
+                if (isMedianApp && window.NativeDatastore) {
+                    localStorage.setItem('iotesp_usuarios', usuariosStr);
+                } else {
+                    localStorage.setItem('iotesp_usuarios', usuariosStr);
+                }
+                return true;
+            } catch (e) {
+                console.error('Erro ao salvar usuários:', e);
+                return false;
+            }
+        }
+
+        function emailExiste(email) {
+            const usuarios = carregarUsuarios();
+            return usuarios.hasOwnProperty(email);
+        }
+
+        function verificarCredenciais(email, senha) {
+            const usuarios = carregarUsuarios();
+            return usuarios[email] && usuarios[email].senha === senha;
+        }
+
+        function verificarPin(email, pin) {
+            const usuarios = carregarUsuarios();
+            return usuarios[email] && usuarios[email].pin === pin;
+        }
+
+        function getUsuario(email) {
+            const usuarios = carregarUsuarios();
+            return usuarios[email];
+        }
+
+        // ===== FUNÇÕES DE QR CODE =====
+        function gerarQRCode(elementId, texto) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = '';
+            QRCode.toCanvas(element, texto, { width: 200 }, function(error) {
+                if (error) console.error(error);
+            });
+        }
+
+        function mostrarQRCodeInicial() {
+            document.getElementById('qrcode-email').textContent = clienteEmail;
+            document.getElementById('qrcode-senha').textContent = clienteSenha;
+            document.getElementById('qrcode-pin').textContent = clientePin;
+            
+            const dadosQR = `IOTESP LOGIN\nEmail: ${clienteEmail}\nSenha: ${clienteSenha}\nPIN: ${clientePin}`;
+            gerarQRCode('qrcode-inicial-img', dadosQR);
+        }
+
+        function fecharQRCodeInicial() {
+            document.getElementById('qrcode-inicial').style.display = 'none';
+            document.getElementById('devices-screen').style.display = 'block';
+        }
+
+        function mostrarQRCodeModal() {
+            fecharModal();
+            
+            const dadosQR = `IOTESP LOGIN\nEmail: ${clienteEmail}\nSenha: ${clienteSenha}\nPIN: ${clientePin}`;
+            gerarQRCode('qrcode-modal-img', dadosQR);
+            
+            document.getElementById('qrcode-modal-info').innerHTML = `
+                <p><strong>Email:</strong> ${clienteEmail}</p>
+                <p><strong>Senha:</strong> ${clienteSenha}</p>
+                <p><strong>PIN:</strong> ${clientePin}</p>
+            `;
+            
+            document.getElementById('qrcode-modal').style.display = 'flex';
+        }
+
+        function fecharQRCodeModal() {
+            document.getElementById('qrcode-modal').style.display = 'none';
+        }
+
+        // ===== TOGGLE CADASTRO =====
+        function toggleCadastro() {
+            modoCadastro = !modoCadastro;
+            const cadastroFields = document.getElementById('cadastro-fields');
+            const btnCadastrar = document.getElementById('btn-cadastrar');
+            
+            if (modoCadastro) {
+                cadastroFields.style.display = 'block';
+                btnCadastrar.innerHTML = '<i class="fas fa-times"></i> cancelar cadastro';
+                btnCadastrar.classList.remove('btn-outline');
+                btnCadastrar.classList.add('btn-danger');
+            } else {
+                cadastroFields.style.display = 'none';
+                btnCadastrar.innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
+                btnCadastrar.classList.remove('btn-danger');
+                btnCadastrar.classList.add('btn-outline');
+                
+                document.getElementById('confirmar-senha-input').value = '';
+                document.getElementById('pin1').value = '';
+                document.getElementById('pin2').value = '';
+                document.getElementById('pin3').value = '';
+                document.getElementById('pin4').value = '';
+                document.getElementById('erro-confirmacao').style.display = 'none';
+            }
+        }
+
+        // ===== LOGIN/CADASTRO =====
+        async function fazerCadastro() {
+            const email = document.getElementById('email-input').value.trim();
+            const senha = document.getElementById('senha-input').value.trim();
+            const confirmarSenha = document.getElementById('confirmar-senha-input').value.trim();
+            const pin1 = document.getElementById('pin1').value;
+            const pin2 = document.getElementById('pin2').value;
+            const pin3 = document.getElementById('pin3').value;
+            const pin4 = document.getElementById('pin4').value;
+            const pin = pin1 + pin2 + pin3 + pin4;
+            
+            if (!email || !email.includes('@')) {
+                mostrarFeedback('email inválido', 'error');
+                return;
+            }
+
+            if (!senha || senha.length !== 6 || !/^\d+$/.test(senha)) {
+                mostrarFeedback('senha deve ter 6 dígitos', 'error');
+                return;
+            }
+
+            if (senha !== confirmarSenha) {
+                document.getElementById('erro-confirmacao').style.display = 'block';
+                return;
+            }
+
+            if (!pin1 || !pin2 || !pin3 || !pin4 || pin.length !== 4 || !/^\d+$/.test(pin)) {
+                mostrarFeedback('PIN deve ter 4 dígitos', 'error');
+                return;
+            }
+
+            if (emailExiste(email)) {
+                mostrarFeedback('email já cadastrado', 'error');
+                return;
+            }
+
+            document.getElementById('erro-confirmacao').style.display = 'none';
+            
+            // Salvar usuário
+            const usuarios = carregarUsuarios();
+            usuarios[email] = { senha, pin };
+            salvarUsuarios(usuarios);
+            
+            // Salvar sessão
+            await Storage.set('iotesp_email', email);
+            await Storage.set('iotesp_senha', senha);
+            await Storage.set('iotesp_pin', pin);
+            await Storage.set('iotesp_logado', 'true');
+            await Storage.set('iotesp_mostrou_qrcode', 'false');
+            
+            clienteEmail = email;
+            clienteSenha = senha;
+            clientePin = pin;
+            
+            document.getElementById('email-screen').style.display = 'none';
+            document.getElementById('dashboard-screen').style.display = 'block';
+            
+            modoCadastro = false;
+            document.getElementById('cadastro-fields').style.display = 'none';
+            document.getElementById('btn-cadastrar').innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
+            document.getElementById('btn-cadastrar').classList.remove('btn-danger');
+            document.getElementById('btn-cadastrar').classList.add('btn-outline');
+            
+            // Mostrar QR Code inicial
+            document.getElementById('qrcode-inicial').style.display = 'block';
+            document.getElementById('devices-screen').style.display = 'none';
+            mostrarQRCodeInicial();
+            
+            mostrarSucesso('Cadastro realizado!');
+        }
+
+        async function fazerLogin() {
+            if (modoCadastro) {
+                fazerCadastro();
+                return;
+            }
+
+            const email = document.getElementById('email-input').value.trim();
+            const senha = document.getElementById('senha-input').value.trim();
+            
+            if (!email || !email.includes('@')) {
+                mostrarFeedback('email inválido', 'error');
+                return;
+            }
+
+            if (!senha || senha.length !== 6 || !/^\d+$/.test(senha)) {
+                mostrarFeedback('senha deve ter 6 dígitos', 'error');
+                return;
+            }
+
+            if (!emailExiste(email)) {
+                mostrarFeedback('email não cadastrado', 'error');
+                return;
+            }
+
+            if (!verificarCredenciais(email, senha)) {
+                mostrarFeedback('senha incorreta', 'error');
+                return;
+            }
+
+            const usuario = getUsuario(email);
+            
+            await Storage.set('iotesp_email', email);
+            await Storage.set('iotesp_senha', senha);
+            await Storage.set('iotesp_pin', usuario.pin);
+            await Storage.set('iotesp_logado', 'true');
+            
+            clienteEmail = email;
+            clienteSenha = senha;
+            clientePin = usuario.pin;
+            
+            document.getElementById('email-screen').style.display = 'none';
+            document.getElementById('dashboard-screen').style.display = 'block';
+            
+            // Verificar se já mostrou QR code antes
+            const mostrouQR = await Storage.get('iotesp_mostrou_qrcode');
+            
+            if (mostrouQR !== 'true') {
+                document.getElementById('qrcode-inicial').style.display = 'block';
+                document.getElementById('devices-screen').style.display = 'none';
+                mostrarQRCodeInicial();
+                await Storage.set('iotesp_mostrou_qrcode', 'true');
+            } else {
+                document.getElementById('qrcode-inicial').style.display = 'none';
+                document.getElementById('devices-screen').style.display = 'block';
+                buscarDispositivos();
+            }
+            
+            mostrarSucesso('Login realizado!');
+        }
+
+        async function fazerLogout() {
+            await Storage.remove('iotesp_email');
+            await Storage.remove('iotesp_senha');
+            await Storage.remove('iotesp_pin');
+            await Storage.remove('iotesp_logado');
+            
+            clienteEmail = '';
+            clienteSenha = '';
+            clientePin = '';
+            dispositivosCliente = [];
+            
+            document.getElementById('email-screen').style.display = 'block';
+            document.getElementById('dashboard-screen').style.display = 'none';
+            document.getElementById('email-input').value = '';
+            document.getElementById('senha-input').value = '';
+            document.getElementById('confirmar-senha-input').value = '';
+            document.getElementById('pin1').value = '';
+            document.getElementById('pin2').value = '';
+            document.getElementById('pin3').value = '';
+            document.getElementById('pin4').value = '';
+            
+            modoCadastro = false;
+            document.getElementById('cadastro-fields').style.display = 'none';
+            document.getElementById('btn-cadastrar').innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
+            document.getElementById('btn-cadastrar').classList.remove('btn-danger');
+            document.getElementById('btn-cadastrar').classList.add('btn-outline');
+        }
+
+        // ===== PERFIL =====
+        function mostrarPerfil() {
+            document.getElementById('perfil-email').textContent = clienteEmail;
+            document.getElementById('perfil-senha').textContent = clienteSenha;
+            document.getElementById('perfil-pin').textContent = clientePin;
+            document.getElementById('perfil-modal').style.display = 'flex';
+        }
+
+        function fecharModal() {
+            document.getElementById('perfil-modal').style.display = 'none';
+        }
+
+        // ===== RECUPERAR SENHA =====
+        function mostrarRecuperarSenha() {
+            document.getElementById('recuperar-modal').style.display = 'flex';
+            document.getElementById('recuperar-passo1').style.display = 'block';
+            document.getElementById('recuperar-passo2').style.display = 'none';
+            document.getElementById('recuperar-email').value = '';
+            document.getElementById('rec-pin1').value = '';
+            document.getElementById('rec-pin2').value = '';
+            document.getElementById('rec-pin3').value = '';
+            document.getElementById('rec-pin4').value = '';
+        }
+
+        function fecharModalRecuperar() {
+            document.getElementById('recuperar-modal').style.display = 'none';
+        }
+
+        function fecharModalRecuperarEVoltar() {
+            document.getElementById('recuperar-modal').style.display = 'none';
+            document.getElementById('recuperar-passo1').style.display = 'block';
+            document.getElementById('recuperar-passo2').style.display = 'none';
+        }
+
+        function verificarPinRecuperar() {
+            const email = document.getElementById('recuperar-email').value.trim();
+            const pin1 = document.getElementById('rec-pin1').value;
+            const pin2 = document.getElementById('rec-pin2').value;
+            const pin3 = document.getElementById('rec-pin3').value;
+            const pin4 = document.getElementById('rec-pin4').value;
+            const pin = pin1 + pin2 + pin3 + pin4;
+            
+            if (!email || !email.includes('@')) {
+                mostrarFeedback('email inválido', 'error');
+                return;
+            }
+
+            if (!pin1 || !pin2 || !pin3 || !pin4 || pin.length !== 4 || !/^\d+$/.test(pin)) {
+                mostrarFeedback('PIN deve ter 4 dígitos', 'error');
+                return;
+            }
+
+            if (!emailExiste(email)) {
+                mostrarFeedback('email não cadastrado', 'error');
+                return;
+            }
+
+            if (!verificarPin(email, pin)) {
+                mostrarFeedback('PIN incorreto', 'error');
+                return;
+            }
+
+            const usuario = getUsuario(email);
+            
+            document.getElementById('recuperar-info').innerHTML = `
+                <p><strong>Email:</strong> ${email}</p>
+                <p><strong>Senha:</strong> ${usuario.senha}</p>
+                <p style="margin-top: 12px; font-size: 13px;">use esta senha para fazer login</p>
+            `;
+            
+            document.getElementById('recuperar-passo1').style.display = 'none';
+            document.getElementById('recuperar-passo2').style.display = 'block';
+        }
+
+        // ===== VERIFICAR SESSÃO AO CARREGAR =====
+        async function verificarSessao() {
+            const email = await Storage.get('iotesp_email');
+            const senha = await Storage.get('iotesp_senha');
+            const pin = await Storage.get('iotesp_pin');
+            const logado = await Storage.get('iotesp_logado');
+            
+            console.log('Verificando sessão:', { email, logado });
+            
+            if (logado === 'true' && email && senha && verificarCredenciais(email, senha)) {
+                clienteEmail = email;
+                clienteSenha = senha;
+                clientePin = pin;
+                
+                document.getElementById('email-screen').style.display = 'none';
+                document.getElementById('dashboard-screen').style.display = 'block';
+                
+                // Verificar se já mostrou QR code
+                const mostrouQR = await Storage.get('iotesp_mostrou_qrcode');
+                
+                if (mostrouQR !== 'true') {
+                    document.getElementById('qrcode-inicial').style.display = 'block';
+                    document.getElementById('devices-screen').style.display = 'none';
+                    mostrarQRCodeInicial();
+                } else {
+                    document.getElementById('qrcode-inicial').style.display = 'none';
+                    document.getElementById('devices-screen').style.display = 'block';
+                    buscarDispositivos();
+                }
+            } else {
+                document.getElementById('email-screen').style.display = 'block';
+                document.getElementById('dashboard-screen').style.display = 'none';
+            }
+        }
+
+        // ===== FUNÇÕES DE UI =====
+        function mostrarTelaDevices() {
+            document.getElementById('devices-screen').style.display = 'block';
+            document.getElementById('device-screen').style.display = 'none';
+        }
+
+        function mostrarTelaDevice() {
+            document.getElementById('devices-screen').style.display = 'none';
+            document.getElementById('device-screen').style.display = 'block';
+        }
+
+        function voltarParaLista() {
+            mostrarTelaDevices();
+        }
+
+        function mostrarLoading(ativo) {
+            document.getElementById('loading').style.display = ativo ? 'block' : 'none';
+            document.getElementById('devices-container').style.display = ativo ? 'none' : 'block';
+        }
+
+        function mostrarDeviceLoading(ativo) {
+            document.getElementById('device-loading').style.display = ativo ? 'block' : 'none';
+            document.getElementById('device-detail').style.display = ativo ? 'none' : 'block';
+        }
+
+        // ===== BUSCAR DISPOSITIVOS =====
+        async function buscarDispositivos() {
+            mostrarTelaDevices();
+            mostrarLoading(true);
+
+            try {
+                const response = await fetch(API_BASE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'getDevicesByEmail',
+                        email: clienteEmail
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Erro na API');
+                }
+
+                const dispositivos = await response.json();
+                
+                for (const dispositivo of dispositivos) {
+                    const pinsResponse = await fetch(API_BASE_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'getPinsByDevice',
+                            deviceId: dispositivo.deviceId
+                        })
+                    });
                     
-                    <header className="p-4 flex justify-between items-center border-b border-gray-800 bg-black/50 backdrop-blur-md z-10 sticky top-0">
-                        <h1 className="text-cold-blue font-bold tracking-wider text-sm">SYSTEM <span className="text-white">22</span></h1>
-                        <div className="flex gap-2 text-xs font-mono">
-                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                            ONLINE
-                        </div>
-                    </header>
+                    if (pinsResponse.ok) {
+                        dispositivo.pins = await pinsResponse.json();
+                    } else {
+                        dispositivo.pins = [];
+                    }
+                }
+                
+                dispositivosCliente = dispositivos;
+                renderizarListaDispositivos(dispositivosCliente);
 
-                    <main className="flex-1 p-4 overflow-hidden relative z-0">
-                        {view === 'dashboard' && <Dashboard />}
-                        {view === 'deepwork' && <DeepWork />}
-                        {view === 'logs' && <Logs />}
-                        {view === 'protocol' && <Protocol />}
-                    </main>
+            } catch (error) {
+                console.error('Erro:', error);
+                mostrarFeedback('falha ao carregar dispositivos', 'error');
+            } finally {
+                mostrarLoading(false);
+            }
+        }
 
-                    <nav className="border-t border-gray-800 bg-black p-2 z-10">
-                        <div className="grid grid-cols-4 gap-1">
-                            <button 
-                                onClick={() => setView('dashboard')}
-                                className={`p-3 text-xs font-bold uppercase tracking-wide transition-all ${view === 'dashboard' ? 'bg-cold-blue text-black' : 'hover:bg-gray-900 text-gray-500'}`}
-                            >
-                                Status
-                            </button>
-                            <button 
-                                onClick={() => setView('deepwork')}
-                                className={`p-3 text-xs font-bold uppercase tracking-wide transition-all ${view === 'deepwork' ? 'bg-cold-blue text-black' : 'hover:bg-gray-900 text-gray-500'}`}
-                            >
-                                Focus
-                            </button>
-                            <button 
-                                onClick={() => setView('logs')}
-                                className={`p-3 text-xs font-bold uppercase tracking-wide transition-all ${view === 'logs' ? 'bg-cold-blue text-black' : 'hover:bg-gray-900 text-gray-500'}`}
-                            >
-                                Data
-                            </button>
-                            <button 
-                                onClick={() => setView('protocol')}
-                                className={`p-3 text-xs font-bold uppercase tracking-wide transition-all ${view === 'protocol' ? 'bg-cold-blue text-black' : 'hover:bg-gray-900 text-gray-500'}`}
-                            >
-                                Rules
-                            </button>
+        // ===== RENDERIZAR LISTA =====
+        function renderizarListaDispositivos(dispositivos) {
+            const container = document.getElementById('devices-container');
+            container.innerHTML = '';
+
+            if (!dispositivos || dispositivos.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 50px; background: white; border-radius: var(--radius-xl);">
+                        <i class="fas fa-microchip" style="font-size: 48px; color: var(--gray-300); margin-bottom: 16px;"></i>
+                        <h3 style="color: var(--gray-600); margin-bottom: 8px;">nenhum dispositivo</h3>
+                        <p style="color: var(--gray-400);">${clienteEmail}</p>
+                    </div>
+                `;
+            } else {
+                const grid = document.createElement('div');
+                grid.className = 'devices-grid';
+
+                dispositivos.forEach(device => {
+                    const card = document.createElement('div');
+                    card.className = 'device-card';
+                    card.onclick = () => verDetalheDispositivo(device.deviceId);
+
+                    card.innerHTML = `
+                        <div class="device-header">
+                            <div class="device-icon">
+                                <i class="fas fa-microchip"></i>
+                            </div>
+                            <div class="device-info">
+                                <div class="device-name">${device.friendlyName || device.deviceId.slice(0, 10)}</div>
+                                <div class="device-id">${device.deviceId.slice(0, 16)}</div>
+                            </div>
                         </div>
-                    </nav>
+                        <div class="device-stats">
+                            <span><i class="fas fa-plug"></i> ${device.pins?.length || 0} relés</span>
+                            <span><i class="fas fa-circle" style="color: var(--success);"></i> ativo</span>
+                        </div>
+                    `;
+
+                    grid.appendChild(card);
+                });
+
+                container.appendChild(grid);
+            }
+
+            container.style.display = 'block';
+        }
+
+        // ===== VER DETALHE DO DISPOSITIVO =====
+        function verDetalheDispositivo(deviceId) {
+            mostrarTelaDevice();
+            mostrarDeviceLoading(true);
+
+            const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
+            
+            if (dispositivo) {
+                setTimeout(() => {
+                    renderizarDetalheDispositivo(dispositivo);
+                    mostrarDeviceLoading(false);
+                }, 300);
+            } else {
+                mostrarFeedback('dispositivo não encontrado', 'error');
+                voltarParaLista();
+            }
+        }
+
+        // ===== RENDERIZAR DETALHE =====
+        function renderizarDetalheDispositivo(device) {
+            const container = document.getElementById('device-detail');
+
+            const pinosOrdenados = [...device.pins].sort((a, b) => a.pinNumber - b.pinNumber);
+
+            const pinsHtml = pinosOrdenados.map((pin, index) => {
+                const numeroRele = index + 1;
+                const nomePadrao = pin.pinName || `relé ${numeroRele}`;
+                const key = `nome_rele_${device.deviceId}_${pin.pinNumber}`;
+                const nomePersonalizado = localStorage.getItem(key) || nomePadrao;
+                
+                return `
+                <div class="pin-card">
+                    <div class="pin-header">
+                        <div class="pin-gpio">${pin.pinNumber}</div>
+                        <div>
+                            <span class="pin-badge">R${numeroRele}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <input type="text" class="pin-name-input" id="nome_${device.deviceId}_${pin.pinNumber}" value="${nomePersonalizado}">
+                        <button class="btn-save-name" onclick="salvarNome('${device.deviceId}', ${pin.pinNumber})">
+                            <i class="fas fa-save"></i>
+                        </button>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <span class="pin-state ${pin.state === 1 ? 'state-on' : 'state-off'}">
+                            ${pin.state === 1 ? 'LIGADO' : 'DESLIGADO'}
+                        </span>
+                    </div>
+                    <div class="pin-controls">
+                        <button class="btn-pin btn-on" onclick="enviarComando('${device.deviceId}', ${pin.pinNumber}, 1)">
+                            <i class="fas fa-power-off"></i> ligar
+                        </button>
+                        <button class="btn-pin btn-off" onclick="enviarComando('${device.deviceId}', ${pin.pinNumber}, 0)">
+                            <i class="fas fa-power-off"></i> desligar
+                        </button>
+                    </div>
                 </div>
-            );
-        };
+            `}).join('');
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<System22 />);
+            container.innerHTML = `
+                <div class="device-detail-card">
+                    <h2 class="device-title">
+                        <i class="fas fa-microchip" style="color: var(--primary); margin-right: 8px;"></i>
+                        ${device.friendlyName || 'Dispositivo'}
+                    </h2>
+                    <div class="device-meta">
+                        <span><i class="fas fa-fingerprint"></i> ${device.deviceId.slice(0, 12)}</span>
+                        <span><i class="fas fa-plug"></i> ${device.pins.length} relés</span>
+                    </div>
+                    <button class="btn-reset" onclick="resetarNomesDispositivo('${device.deviceId}')">
+                        <i class="fas fa-undo-alt"></i> resetar nomes
+                    </button>
+                </div>
+                <div class="pins-grid">
+                    ${pinsHtml}
+                </div>
+            `;
+
+            container.style.display = 'block';
+        }
+
+        // ===== SALVAR NOME =====
+        function salvarNome(deviceId, pinNumber) {
+            const input = document.getElementById(`nome_${deviceId}_${pinNumber}`);
+            if (input) {
+                const novoNome = input.value.trim();
+                if (novoNome) {
+                    const key = `nome_rele_${deviceId}_${pinNumber}`;
+                    localStorage.setItem(key, novoNome);
+                    mostrarSucesso(`Nome salvo: ${novoNome}`);
+                }
+            }
+        }
+
+        function resetarNomesDispositivo(deviceId) {
+            const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
+            if (dispositivo) {
+                dispositivo.pins.forEach(pin => {
+                    const key = `nome_rele_${deviceId}_${pin.pinNumber}`;
+                    localStorage.removeItem(key);
+                });
+                mostrarSucesso('Nomes resetados');
+                renderizarDetalheDispositivo(dispositivo);
+            }
+        }
+
+        // ===== ENVIAR COMANDO =====
+        async function enviarComando(deviceId, pinNumber, state) {
+            try {
+                const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
+                if (!dispositivo) return;
+                
+                const pinIndex = dispositivo.pins.findIndex(p => p.pinNumber === pinNumber);
+                const numeroRele = pinIndex + 1;
+
+                const response = await fetch(API_BASE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'update_state',
+                        device_id: deviceId,
+                        pin_states: {
+                            [`rele${numeroRele}`]: state
+                        }
+                    })
+                });
+
+                const resultado = await response.json();
+                
+                if (response.ok && resultado.success) {
+                    const pin = dispositivo.pins.find(p => p.pinNumber === pinNumber);
+                    if (pin) pin.state = state;
+                    
+                    const pinCards = document.querySelectorAll('.pin-card');
+                    pinCards.forEach((card, idx) => {
+                        if (idx === pinIndex) {
+                            const stateEl = card.querySelector('.pin-state');
+                            stateEl.textContent = state ? 'LIGADO' : 'DESLIGADO';
+                            stateEl.className = `pin-state ${state ? 'state-on' : 'state-off'}`;
+                        }
+                    });
+                    
+                    mostrarSucesso(state ? 'Ligado' : 'Desligado');
+                }
+            } catch (error) {
+                mostrarFeedback('erro de rede', 'error');
+            }
+        }
+
+        // ===== INICIALIZAÇÃO =====
+        window.onload = function() {
+            verificarSessao();
+            
+            window.onclick = function(event) {
+                if (event.target.classList.contains('modal-overlay')) {
+                    fecharModal();
+                    fecharQRCodeModal();
+                    fecharModalRecuperar();
+                }
+            };
+        };
     </script>
 </body>
 </html>
