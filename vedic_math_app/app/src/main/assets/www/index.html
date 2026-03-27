@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
     <title>IOTESP · Smart Control</title>
-    <link rel="manifest" href="/manifest.json">
     
     <!-- Fontes modernas -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -82,6 +81,30 @@
                         resolve(false);
                     }
                 });
+            },
+            
+            // NOVA FUNÇÃO: Limpar todos os dados do app
+            async clearAll() {
+                try {
+                    if (isMedianApp && window.NativeDatastore) {
+                        // Para Median.co, precisamos limpar cada chave individualmente
+                        const keys = ['iotesp_usuarios', 'iotesp_email', 'iotesp_senha', 'iotesp_pin', 'iotesp_logado', 'iotesp_mostrou_qrcode'];
+                        for (const key of keys) {
+                            await this.remove(key);
+                        }
+                    } else {
+                        localStorage.removeItem('iotesp_usuarios');
+                        localStorage.removeItem('iotesp_email');
+                        localStorage.removeItem('iotesp_senha');
+                        localStorage.removeItem('iotesp_pin');
+                        localStorage.removeItem('iotesp_logado');
+                        localStorage.removeItem('iotesp_mostrou_qrcode');
+                    }
+                    return true;
+                } catch (e) {
+                    console.warn('Storage clear error:', e);
+                    return false;
+                }
             }
         };
         
@@ -90,9 +113,846 @@
         let clientePin = '';
         let dispositivosCliente = [];
         let modoCadastro = false;
+        
+        // ===== SISTEMA DE USUÁRIOS - COMEÇA SEMPRE VAZIO =====
+        function carregarUsuarios() {
+            try {
+                let usuariosStr;
+                if (isMedianApp && window.NativeDatastore) {
+                    // Para Median.co, precisamos acessar de forma síncrona aqui
+                    // Por simplicidade, vamos usar localStorage para usuários (apenas para demonstração)
+                    // Em produção, use API para armazenar usuários
+                    usuariosStr = localStorage.getItem('iotesp_usuarios');
+                } else {
+                    usuariosStr = localStorage.getItem('iotesp_usuarios');
+                }
+                
+                if (!usuariosStr) {
+                    return {}; // COMEÇA SEMPRE VAZIO - SEM USUÁRIOS PRÉ-CADASTRADOS!
+                }
+                return JSON.parse(usuariosStr);
+            } catch (e) {
+                console.error('Erro ao carregar usuários:', e);
+                return {};
+            }
+        }
+        
+        function salvarUsuarios(usuarios) {
+            try {
+                const usuariosStr = JSON.stringify(usuarios);
+                if (isMedianApp && window.NativeDatastore) {
+                    localStorage.setItem('iotesp_usuarios', usuariosStr);
+                } else {
+                    localStorage.setItem('iotesp_usuarios', usuariosStr);
+                }
+                return true;
+            } catch (e) {
+                console.error('Erro ao salvar usuários:', e);
+                return false;
+            }
+        }
+        
+        function emailExiste(email) {
+            const usuarios = carregarUsuarios();
+            return usuarios.hasOwnProperty(email);
+        }
+        
+        function verificarCredenciais(email, senha) {
+            const usuarios = carregarUsuarios();
+            return usuarios[email] && usuarios[email].senha === senha;
+        }
+        
+        function verificarPin(email, pin) {
+            const usuarios = carregarUsuarios();
+            return usuarios[email] && usuarios[email].pin === pin;
+        }
+        
+        function getUsuario(email) {
+            const usuarios = carregarUsuarios();
+            return usuarios[email];
+        }
+        
+        // ===== FUNÇÕES DE QR CODE (mantidas iguais) =====
+        function gerarQRCode(elementId, texto) {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+            element.innerHTML = '';
+            QRCode.toCanvas(element, texto, { width: 200 }, function(error) {
+                if (error) console.error(error);
+            });
+        }
+        
+        function mostrarQRCodeInicial() {
+            const qrcodeEmail = document.getElementById('qrcode-email');
+            const qrcodeSenha = document.getElementById('qrcode-senha');
+            const qrcodePin = document.getElementById('qrcode-pin');
+            
+            if (qrcodeEmail) qrcodeEmail.textContent = clienteEmail;
+            if (qrcodeSenha) qrcodeSenha.textContent = clienteSenha;
+            if (qrcodePin) qrcodePin.textContent = clientePin;
+            
+            const dadosQR = `IOTESP LOGIN\nEmail: ${clienteEmail}\nSenha: ${clienteSenha}\nPIN: ${clientePin}`;
+            gerarQRCode('qrcode-inicial-img', dadosQR);
+        }
+        
+        function fecharQRCodeInicial() {
+            const qrcodeInicial = document.getElementById('qrcode-inicial');
+            const devicesScreen = document.getElementById('devices-screen');
+            if (qrcodeInicial) qrcodeInicial.style.display = 'none';
+            if (devicesScreen) devicesScreen.style.display = 'block';
+        }
+        
+        function mostrarQRCodeModal() {
+            fecharModal();
+            
+            const dadosQR = `IOTESP LOGIN\nEmail: ${clienteEmail}\nSenha: ${clienteSenha}\nPIN: ${clientePin}`;
+            gerarQRCode('qrcode-modal-img', dadosQR);
+            
+            const qrcodeModalInfo = document.getElementById('qrcode-modal-info');
+            if (qrcodeModalInfo) {
+                qrcodeModalInfo.innerHTML = `
+                    <p><strong>Email:</strong> ${clienteEmail}</p>
+                    <p><strong>Senha:</strong> ${clienteSenha}</p>
+                    <p><strong>PIN:</strong> ${clientePin}</p>
+                `;
+            }
+            
+            const qrcodeModal = document.getElementById('qrcode-modal');
+            if (qrcodeModal) qrcodeModal.style.display = 'flex';
+        }
+        
+        function fecharQRCodeModal() {
+            const qrcodeModal = document.getElementById('qrcode-modal');
+            if (qrcodeModal) qrcodeModal.style.display = 'none';
+        }
+        
+        // ===== TOGGLE CADASTRO =====
+        function toggleCadastro() {
+            modoCadastro = !modoCadastro;
+            const cadastroFields = document.getElementById('cadastro-fields');
+            const btnCadastrar = document.getElementById('btn-cadastrar');
+            
+            if (cadastroFields && btnCadastrar) {
+                if (modoCadastro) {
+                    cadastroFields.style.display = 'block';
+                    btnCadastrar.innerHTML = '<i class="fas fa-times"></i> cancelar cadastro';
+                    btnCadastrar.classList.remove('btn-outline');
+                    btnCadastrar.classList.add('btn-danger');
+                } else {
+                    cadastroFields.style.display = 'none';
+                    btnCadastrar.innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
+                    btnCadastrar.classList.remove('btn-danger');
+                    btnCadastrar.classList.add('btn-outline');
+                    
+                    document.getElementById('confirmar-senha-input').value = '';
+                    document.getElementById('pin1').value = '';
+                    document.getElementById('pin2').value = '';
+                    document.getElementById('pin3').value = '';
+                    document.getElementById('pin4').value = '';
+                    const erroConfirmacao = document.getElementById('erro-confirmacao');
+                    if (erroConfirmacao) erroConfirmacao.style.display = 'none';
+                }
+            }
+        }
+        
+        function mostrarFeedback(mensagem, tipo) {
+            const feedbackEl = document.getElementById('mensagem-feedback');
+            if (feedbackEl) {
+                feedbackEl.textContent = mensagem;
+                feedbackEl.className = `feedback-message feedback-${tipo}`;
+                feedbackEl.style.display = 'block';
+                
+                setTimeout(() => {
+                    feedbackEl.style.display = 'none';
+                }, 4000);
+            }
+        }
+        
+        function mostrarSucesso(mensagem) {
+            const toast = document.createElement('div');
+            toast.className = 'toast-success';
+            toast.innerHTML = `<i class="fas fa-check-circle"></i> ${mensagem}`;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 2000);
+        }
+        
+        // ===== CADASTRO - SEMPRE CRIA NOVO USUÁRIO, NUNCA COMPARTILHA =====
+        async function fazerCadastro() {
+            const email = document.getElementById('email-input').value.trim();
+            const senha = document.getElementById('senha-input').value.trim();
+            const confirmarSenha = document.getElementById('confirmar-senha-input').value.trim();
+            const pin1 = document.getElementById('pin1').value;
+            const pin2 = document.getElementById('pin2').value;
+            const pin3 = document.getElementById('pin3').value;
+            const pin4 = document.getElementById('pin4').value;
+            const pin = pin1 + pin2 + pin3 + pin4;
+            
+            // Validações
+            if (!email || !email.includes('@')) {
+                mostrarFeedback('Email inválido', 'error');
+                return;
+            }
+            
+            if (!senha || senha.length !== 6 || !/^\d+$/.test(senha)) {
+                mostrarFeedback('Senha deve ter 6 dígitos', 'error');
+                return;
+            }
+            
+            if (senha !== confirmarSenha) {
+                const erroConfirmacao = document.getElementById('erro-confirmacao');
+                if (erroConfirmacao) erroConfirmacao.style.display = 'block';
+                return;
+            }
+            
+            if (!pin1 || !pin2 || !pin3 || !pin4 || pin.length !== 4 || !/^\d+$/.test(pin)) {
+                mostrarFeedback('PIN deve ter 4 dígitos', 'error');
+                return;
+            }
+            
+            const erroConfirmacao = document.getElementById('erro-confirmacao');
+            if (erroConfirmacao) erroConfirmacao.style.display = 'none';
+            
+            // VERIFICA SE EMAIL JÁ EXISTE - ISOLAMENTO DE USUÁRIOS!
+            if (emailExiste(email)) {
+                mostrarFeedback('❌ Este email já está cadastrado. Use outro email ou faça login.', 'error');
+                return;
+            }
+            
+            // CRIA NOVO USUÁRIO - CADA PESSOA CRIA SUA PRÓPRIA CONTA
+            const usuarios = carregarUsuarios();
+            usuarios[email] = { senha, pin };
+            salvarUsuarios(usuarios);
+            
+            // Salva sessão do usuário atual
+            await Storage.set('iotesp_email', email);
+            await Storage.set('iotesp_senha', senha);
+            await Storage.set('iotesp_pin', pin);
+            await Storage.set('iotesp_logado', 'true');
+            await Storage.set('iotesp_mostrou_qrcode', 'false');
+            
+            clienteEmail = email;
+            clienteSenha = senha;
+            clientePin = pin;
+            
+            // Muda para tela do app
+            const emailScreen = document.getElementById('email-screen');
+            const dashboardScreen = document.getElementById('dashboard-screen');
+            if (emailScreen) emailScreen.style.display = 'none';
+            if (dashboardScreen) dashboardScreen.style.display = 'block';
+            
+            // Reseta modo cadastro
+            modoCadastro = false;
+            const cadastroFields = document.getElementById('cadastro-fields');
+            const btnCadastrar = document.getElementById('btn-cadastrar');
+            if (cadastroFields) cadastroFields.style.display = 'none';
+            if (btnCadastrar) {
+                btnCadastrar.innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
+                btnCadastrar.classList.remove('btn-danger');
+                btnCadastrar.classList.add('btn-outline');
+            }
+            
+            // Mostra QR Code inicial
+            const qrcodeInicial = document.getElementById('qrcode-inicial');
+            const devicesScreen = document.getElementById('devices-screen');
+            if (qrcodeInicial) qrcodeInicial.style.display = 'block';
+            if (devicesScreen) devicesScreen.style.display = 'none';
+            mostrarQRCodeInicial();
+            
+            mostrarSucesso('✅ Conta criada com sucesso!');
+        }
+        
+        // ===== LOGIN - SÓ ACESSA SE CREDENCIAIS ESTIVEREM CORRETAS =====
+        async function fazerLogin() {
+            if (modoCadastro) {
+                fazerCadastro();
+                return;
+            }
+            
+            const email = document.getElementById('email-input').value.trim();
+            const senha = document.getElementById('senha-input').value.trim();
+            
+            if (!email || !email.includes('@')) {
+                mostrarFeedback('Email inválido', 'error');
+                return;
+            }
+            
+            if (!senha || senha.length !== 6 || !/^\d+$/.test(senha)) {
+                mostrarFeedback('Senha deve ter 6 dígitos', 'error');
+                return;
+            }
+            
+            // VERIFICA SE EMAIL EXISTE ANTES DE TENTAR LOGIN
+            if (!emailExiste(email)) {
+                mostrarFeedback('❌ Email não cadastrado. Clique em "cadastrar" para criar uma conta.', 'error');
+                return;
+            }
+            
+            // VERIFICA SE SENHA ESTÁ CORRETA
+            if (!verificarCredenciais(email, senha)) {
+                mostrarFeedback('❌ Senha incorreta', 'error');
+                return;
+            }
+            
+            const usuario = getUsuario(email);
+            
+            // Salva sessão
+            await Storage.set('iotesp_email', email);
+            await Storage.set('iotesp_senha', senha);
+            await Storage.set('iotesp_pin', usuario.pin);
+            await Storage.set('iotesp_logado', 'true');
+            
+            clienteEmail = email;
+            clienteSenha = senha;
+            clientePin = usuario.pin;
+            
+            // Muda para dashboard
+            const emailScreen = document.getElementById('email-screen');
+            const dashboardScreen = document.getElementById('dashboard-screen');
+            if (emailScreen) emailScreen.style.display = 'none';
+            if (dashboardScreen) dashboardScreen.style.display = 'block';
+            
+            // Verifica se já mostrou QR code
+            const mostrouQR = await Storage.get('iotesp_mostrou_qrcode');
+            
+            const qrcodeInicial = document.getElementById('qrcode-inicial');
+            const devicesScreen = document.getElementById('devices-screen');
+            
+            if (mostrouQR !== 'true') {
+                if (qrcodeInicial) qrcodeInicial.style.display = 'block';
+                if (devicesScreen) devicesScreen.style.display = 'none';
+                mostrarQRCodeInicial();
+                await Storage.set('iotesp_mostrou_qrcode', 'true');
+            } else {
+                if (qrcodeInicial) qrcodeInicial.style.display = 'none';
+                if (devicesScreen) devicesScreen.style.display = 'block';
+                buscarDispositivos();
+            }
+            
+            mostrarSucesso('✅ Login realizado!');
+        }
+        
+        // ===== LOGOUT - LIMPA SESSÃO DO USUÁRIO ATUAL =====
+        async function fazerLogout() {
+            // Remove apenas os dados da sessão atual, NÃO os usuários cadastrados
+            await Storage.remove('iotesp_email');
+            await Storage.remove('iotesp_senha');
+            await Storage.remove('iotesp_pin');
+            await Storage.remove('iotesp_logado');
+            
+            clienteEmail = '';
+            clienteSenha = '';
+            clientePin = '';
+            dispositivosCliente = [];
+            
+            // Volta para tela de login
+            const emailScreen = document.getElementById('email-screen');
+            const dashboardScreen = document.getElementById('dashboard-screen');
+            if (emailScreen) emailScreen.style.display = 'block';
+            if (dashboardScreen) dashboardScreen.style.display = 'none';
+            
+            // Limpa campos
+            document.getElementById('email-input').value = '';
+            document.getElementById('senha-input').value = '';
+            document.getElementById('confirmar-senha-input').value = '';
+            document.getElementById('pin1').value = '';
+            document.getElementById('pin2').value = '';
+            document.getElementById('pin3').value = '';
+            document.getElementById('pin4').value = '';
+            
+            // Reseta modo cadastro
+            modoCadastro = false;
+            const cadastroFields = document.getElementById('cadastro-fields');
+            const btnCadastrar = document.getElementById('btn-cadastrar');
+            if (cadastroFields) cadastroFields.style.display = 'none';
+            if (btnCadastrar) {
+                btnCadastrar.innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
+                btnCadastrar.classList.remove('btn-danger');
+                btnCadastrar.classList.add('btn-outline');
+            }
+            
+            mostrarSucesso('👋 Logout realizado com sucesso!');
+        }
+        
+        // ===== FUNÇÃO DE RESET (OPCIONAL) - LIMPA TODOS OS DADOS =====
+        async function resetarTodosOsDados() {
+            if (confirm('⚠️ ATENÇÃO: Isso vai apagar TODOS os usuários cadastrados neste celular. Continuar?')) {
+                await Storage.clearAll();
+                mostrarSucesso('🗑️ Todos os dados foram apagados!');
+                // Recarrega a página
+                window.location.reload();
+            }
+        }
+        
+        // ===== PERFIL (mantido igual) =====
+        function mostrarPerfil() {
+            const perfilEmail = document.getElementById('perfil-email');
+            const perfilSenha = document.getElementById('perfil-senha');
+            const perfilPin = document.getElementById('perfil-pin');
+            
+            if (perfilEmail) perfilEmail.textContent = clienteEmail;
+            if (perfilSenha) perfilSenha.textContent = clienteSenha;
+            if (perfilPin) perfilPin.textContent = clientePin;
+            
+            const perfilModal = document.getElementById('perfil-modal');
+            if (perfilModal) perfilModal.style.display = 'flex';
+        }
+        
+        function fecharModal() {
+            const perfilModal = document.getElementById('perfil-modal');
+            if (perfilModal) perfilModal.style.display = 'none';
+        }
+        
+        // ===== RECUPERAR SENHA =====
+        function mostrarRecuperarSenha() {
+            const recuperarModal = document.getElementById('recuperar-modal');
+            const recuperarPasso1 = document.getElementById('recuperar-passo1');
+            const recuperarPasso2 = document.getElementById('recuperar-passo2');
+            
+            if (recuperarModal) recuperarModal.style.display = 'flex';
+            if (recuperarPasso1) recuperarPasso1.style.display = 'block';
+            if (recuperarPasso2) recuperarPasso2.style.display = 'none';
+            
+            document.getElementById('recuperar-email').value = '';
+            document.getElementById('rec-pin1').value = '';
+            document.getElementById('rec-pin2').value = '';
+            document.getElementById('rec-pin3').value = '';
+            document.getElementById('rec-pin4').value = '';
+        }
+        
+        function fecharModalRecuperar() {
+            const recuperarModal = document.getElementById('recuperar-modal');
+            if (recuperarModal) recuperarModal.style.display = 'none';
+        }
+        
+        function fecharModalRecuperarEVoltar() {
+            const recuperarModal = document.getElementById('recuperar-modal');
+            const recuperarPasso1 = document.getElementById('recuperar-passo1');
+            const recuperarPasso2 = document.getElementById('recuperar-passo2');
+            
+            if (recuperarModal) recuperarModal.style.display = 'none';
+            if (recuperarPasso1) recuperarPasso1.style.display = 'block';
+            if (recuperarPasso2) recuperarPasso2.style.display = 'none';
+        }
+        
+        function verificarPinRecuperar() {
+            const email = document.getElementById('recuperar-email').value.trim();
+            const pin1 = document.getElementById('rec-pin1').value;
+            const pin2 = document.getElementById('rec-pin2').value;
+            const pin3 = document.getElementById('rec-pin3').value;
+            const pin4 = document.getElementById('rec-pin4').value;
+            const pin = pin1 + pin2 + pin3 + pin4;
+            
+            if (!email || !email.includes('@')) {
+                mostrarFeedback('Email inválido', 'error');
+                return;
+            }
+            
+            if (!pin1 || !pin2 || !pin3 || !pin4 || pin.length !== 4 || !/^\d+$/.test(pin)) {
+                mostrarFeedback('PIN deve ter 4 dígitos', 'error');
+                return;
+            }
+            
+            if (!emailExiste(email)) {
+                mostrarFeedback('Email não cadastrado', 'error');
+                return;
+            }
+            
+            if (!verificarPin(email, pin)) {
+                mostrarFeedback('PIN incorreto', 'error');
+                return;
+            }
+            
+            const usuario = getUsuario(email);
+            
+            const recuperarInfo = document.getElementById('recuperar-info');
+            if (recuperarInfo) {
+                recuperarInfo.innerHTML = `
+                    <p><strong>Email:</strong> ${email}</p>
+                    <p><strong>Senha:</strong> ${usuario.senha}</p>
+                    <p style="margin-top: 12px; font-size: 13px;">Use esta senha para fazer login</p>
+                `;
+            }
+            
+            const recuperarPasso1 = document.getElementById('recuperar-passo1');
+            const recuperarPasso2 = document.getElementById('recuperar-passo2');
+            if (recuperarPasso1) recuperarPasso1.style.display = 'none';
+            if (recuperarPasso2) recuperarPasso2.style.display = 'block';
+        }
+        
+        // ===== VERIFICAR SESSÃO AO CARREGAR =====
+        async function verificarSessao() {
+            const email = await Storage.get('iotesp_email');
+            const senha = await Storage.get('iotesp_senha');
+            const pin = await Storage.get('iotesp_pin');
+            const logado = await Storage.get('iotesp_logado');
+            
+            console.log('Verificando sessão:', { email, logado });
+            
+            if (logado === 'true' && email && senha && verificarCredenciais(email, senha)) {
+                clienteEmail = email;
+                clienteSenha = senha;
+                clientePin = pin;
+                
+                const emailScreen = document.getElementById('email-screen');
+                const dashboardScreen = document.getElementById('dashboard-screen');
+                if (emailScreen) emailScreen.style.display = 'none';
+                if (dashboardScreen) dashboardScreen.style.display = 'block';
+                
+                // Verifica se já mostrou QR code
+                const mostrouQR = await Storage.get('iotesp_mostrou_qrcode');
+                
+                const qrcodeInicial = document.getElementById('qrcode-inicial');
+                const devicesScreen = document.getElementById('devices-screen');
+                
+                if (mostrouQR !== 'true') {
+                    if (qrcodeInicial) qrcodeInicial.style.display = 'block';
+                    if (devicesScreen) devicesScreen.style.display = 'none';
+                    mostrarQRCodeInicial();
+                } else {
+                    if (qrcodeInicial) qrcodeInicial.style.display = 'none';
+                    if (devicesScreen) devicesScreen.style.display = 'block';
+                    buscarDispositivos();
+                }
+            } else {
+                const emailScreen = document.getElementById('email-screen');
+                const dashboardScreen = document.getElementById('dashboard-screen');
+                if (emailScreen) emailScreen.style.display = 'block';
+                if (dashboardScreen) dashboardScreen.style.display = 'none';
+            }
+        }
+        
+        // ===== FUNÇÕES DE UI =====
+        function mostrarTelaDevices() {
+            const devicesScreen = document.getElementById('devices-screen');
+            const deviceScreen = document.getElementById('device-screen');
+            if (devicesScreen) devicesScreen.style.display = 'block';
+            if (deviceScreen) deviceScreen.style.display = 'none';
+        }
+        
+        function mostrarTelaDevice() {
+            const devicesScreen = document.getElementById('devices-screen');
+            const deviceScreen = document.getElementById('device-screen');
+            if (devicesScreen) devicesScreen.style.display = 'none';
+            if (deviceScreen) deviceScreen.style.display = 'block';
+        }
+        
+        function voltarParaLista() {
+            mostrarTelaDevices();
+        }
+        
+        function mostrarLoading(ativo) {
+            const loading = document.getElementById('loading');
+            const devicesContainer = document.getElementById('devices-container');
+            if (loading) loading.style.display = ativo ? 'block' : 'none';
+            if (devicesContainer) devicesContainer.style.display = ativo ? 'none' : 'block';
+        }
+        
+        function mostrarDeviceLoading(ativo) {
+            const deviceLoading = document.getElementById('device-loading');
+            const deviceDetail = document.getElementById('device-detail');
+            if (deviceLoading) deviceLoading.style.display = ativo ? 'block' : 'none';
+            if (deviceDetail) deviceDetail.style.display = ativo ? 'none' : 'block';
+        }
+        
+        // ===== BUSCAR DISPOSITIVOS (mantido igual) =====
+        async function buscarDispositivos() {
+            mostrarTelaDevices();
+            mostrarLoading(true);
+            
+            try {
+                const response = await fetch(API_BASE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'getDevicesByEmail',
+                        email: clienteEmail
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Erro na API');
+                }
+                
+                const dispositivos = await response.json();
+                
+                for (const dispositivo of dispositivos) {
+                    const pinsResponse = await fetch(API_BASE_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'getPinsByDevice',
+                            deviceId: dispositivo.deviceId
+                        })
+                    });
+                    
+                    if (pinsResponse.ok) {
+                        dispositivo.pins = await pinsResponse.json();
+                    } else {
+                        dispositivo.pins = [];
+                    }
+                }
+                
+                dispositivosCliente = dispositivos;
+                renderizarListaDispositivos(dispositivosCliente);
+                
+            } catch (error) {
+                console.error('Erro:', error);
+                mostrarFeedback('Falha ao carregar dispositivos', 'error');
+            } finally {
+                mostrarLoading(false);
+            }
+        }
+        
+        function renderizarListaDispositivos(dispositivos) {
+            const container = document.getElementById('devices-container');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            if (!dispositivos || dispositivos.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 50px; background: white; border-radius: var(--radius-xl);">
+                        <i class="fas fa-microchip" style="font-size: 48px; color: var(--gray-300); margin-bottom: 16px;"></i>
+                        <h3 style="color: var(--gray-600); margin-bottom: 8px;">Nenhum dispositivo</h3>
+                        <p style="color: var(--gray-400);">${clienteEmail}</p>
+                    </div>
+                `;
+            } else {
+                const grid = document.createElement('div');
+                grid.className = 'devices-grid';
+                
+                dispositivos.forEach(device => {
+                    const card = document.createElement('div');
+                    card.className = 'device-card';
+                    card.onclick = () => verDetalheDispositivo(device.deviceId);
+                    
+                    card.innerHTML = `
+                        <div class="device-header">
+                            <div class="device-icon">
+                                <i class="fas fa-microchip"></i>
+                            </div>
+                            <div class="device-info">
+                                <div class="device-name">${device.friendlyName || device.deviceId.slice(0, 10)}</div>
+                                <div class="device-id">${device.deviceId.slice(0, 16)}</div>
+                            </div>
+                        </div>
+                        <div class="device-stats">
+                            <span><i class="fas fa-plug"></i> ${device.pins?.length || 0} relés</span>
+                            <span><i class="fas fa-circle" style="color: var(--success);"></i> ativo</span>
+                        </div>
+                    `;
+                    
+                    grid.appendChild(card);
+                });
+                
+                container.appendChild(grid);
+            }
+            
+            container.style.display = 'block';
+        }
+        
+        function verDetalheDispositivo(deviceId) {
+            mostrarTelaDevice();
+            mostrarDeviceLoading(true);
+            
+            const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
+            
+            if (dispositivo) {
+                setTimeout(() => {
+                    renderizarDetalheDispositivo(dispositivo);
+                    mostrarDeviceLoading(false);
+                }, 300);
+            } else {
+                mostrarFeedback('Dispositivo não encontrado', 'error');
+                voltarParaLista();
+            }
+        }
+        
+        function renderizarDetalheDispositivo(device) {
+            const container = document.getElementById('device-detail');
+            if (!container) return;
+            
+            const pinosOrdenados = [...device.pins].sort((a, b) => a.pinNumber - b.pinNumber);
+            
+            const pinsHtml = pinosOrdenados.map((pin, index) => {
+                const numeroRele = index + 1;
+                const nomePadrao = pin.pinName || `relé ${numeroRele}`;
+                const key = `nome_rele_${device.deviceId}_${pin.pinNumber}`;
+                let nomePersonalizado = '';
+                try {
+                    nomePersonalizado = localStorage.getItem(key) || nomePadrao;
+                } catch(e) { nomePersonalizado = nomePadrao; }
+                
+                return `
+                <div class="pin-card">
+                    <div class="pin-header">
+                        <div class="pin-gpio">${pin.pinNumber}</div>
+                        <div>
+                            <span class="pin-badge">R${numeroRele}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                        <input type="text" class="pin-name-input" id="nome_${device.deviceId}_${pin.pinNumber}" value="${nomePersonalizado.replace(/"/g, '&quot;')}">
+                        <button class="btn-save-name" onclick="salvarNome('${device.deviceId}', ${pin.pinNumber})">
+                            <i class="fas fa-save"></i>
+                        </button>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <span class="pin-state ${pin.state === 1 ? 'state-on' : 'state-off'}">
+                            ${pin.state === 1 ? 'LIGADO' : 'DESLIGADO'}
+                        </span>
+                    </div>
+                    <div class="pin-controls">
+                        <button class="btn-pin btn-on" onclick="enviarComando('${device.deviceId}', ${pin.pinNumber}, 1)">
+                            <i class="fas fa-power-off"></i> ligar
+                        </button>
+                        <button class="btn-pin btn-off" onclick="enviarComando('${device.deviceId}', ${pin.pinNumber}, 0)">
+                            <i class="fas fa-power-off"></i> desligar
+                        </button>
+                    </div>
+                </div>
+            `}).join('');
+            
+            container.innerHTML = `
+                <div class="device-detail-card">
+                    <h2 class="device-title">
+                        <i class="fas fa-microchip" style="color: var(--primary); margin-right: 8px;"></i>
+                        ${device.friendlyName || 'Dispositivo'}
+                    </h2>
+                    <div class="device-meta">
+                        <span><i class="fas fa-fingerprint"></i> ${device.deviceId.slice(0, 12)}</span>
+                        <span><i class="fas fa-plug"></i> ${device.pins.length} relés</span>
+                    </div>
+                    <button class="btn-reset" onclick="resetarNomesDispositivo('${device.deviceId}')">
+                        <i class="fas fa-undo-alt"></i> resetar nomes
+                    </button>
+                </div>
+                <div class="pins-grid">
+                    ${pinsHtml}
+                </div>
+            `;
+            
+            container.style.display = 'block';
+        }
+        
+        function salvarNome(deviceId, pinNumber) {
+            const input = document.getElementById(`nome_${deviceId}_${pinNumber}`);
+            if (input) {
+                const novoNome = input.value.trim();
+                if (novoNome) {
+                    const key = `nome_rele_${deviceId}_${pinNumber}`;
+                    localStorage.setItem(key, novoNome);
+                    mostrarSucesso(`Nome salvo: ${novoNome}`);
+                }
+            }
+        }
+        
+        function resetarNomesDispositivo(deviceId) {
+            const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
+            if (dispositivo) {
+                dispositivo.pins.forEach(pin => {
+                    const key = `nome_rele_${deviceId}_${pin.pinNumber}`;
+                    localStorage.removeItem(key);
+                });
+                mostrarSucesso('Nomes resetados');
+                renderizarDetalheDispositivo(dispositivo);
+            }
+        }
+        
+        async function enviarComando(deviceId, pinNumber, state) {
+            try {
+                const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
+                if (!dispositivo) return;
+                
+                const pinIndex = dispositivo.pins.findIndex(p => p.pinNumber === pinNumber);
+                const numeroRele = pinIndex + 1;
+                
+                const response = await fetch(API_BASE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'update_state',
+                        device_id: deviceId,
+                        pin_states: {
+                            [`rele${numeroRele}`]: state
+                        }
+                    })
+                });
+                
+                const resultado = await response.json();
+                
+                if (response.ok && resultado.success) {
+                    const pin = dispositivo.pins.find(p => p.pinNumber === pinNumber);
+                    if (pin) pin.state = state;
+                    
+                    const pinCards = document.querySelectorAll('.pin-card');
+                    pinCards.forEach((card, idx) => {
+                        if (idx === pinIndex) {
+                            const stateEl = card.querySelector('.pin-state');
+                            if (stateEl) {
+                                stateEl.textContent = state ? 'LIGADO' : 'DESLIGADO';
+                                stateEl.className = `pin-state ${state ? 'state-on' : 'state-off'}`;
+                            }
+                        }
+                    });
+                    
+                    mostrarSucesso(state ? '✅ Ligado' : '🔴 Desligado');
+                } else {
+                    mostrarFeedback('Erro ao enviar comando', 'error');
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                mostrarFeedback('Erro de rede', 'error');
+            }
+        }
+        
+        // ===== INICIALIZAÇÃO =====
+        window.onload = function() {
+            verificarSessao();
+            
+            // Adiciona evento para fechar modais ao clicar fora
+            window.onclick = function(event) {
+                if (event.target.classList && event.target.classList.contains('modal-overlay')) {
+                    fecharModal();
+                    fecharQRCodeModal();
+                    fecharModalRecuperar();
+                }
+            };
+        };
+        
+        // EXPORTA FUNÇÕES GLOBAIS (para serem chamadas pelo HTML)
+        window.toggleCadastro = toggleCadastro;
+        window.fazerLogin = fazerLogin;
+        window.fazerLogout = fazerLogout;
+        window.mostrarPerfil = mostrarPerfil;
+        window.fecharModal = fecharModal;
+        window.mostrarQRCodeModal = mostrarQRCodeModal;
+        window.fecharQRCodeModal = fecharQRCodeModal;
+        window.fecharQRCodeInicial = fecharQRCodeInicial;
+        window.mostrarRecuperarSenha = mostrarRecuperarSenha;
+        window.fecharModalRecuperar = fecharModalRecuperar;
+        window.fecharModalRecuperarEVoltar = fecharModalRecuperarEVoltar;
+        window.verificarPinRecuperar = verificarPinRecuperar;
+        window.voltarParaLista = voltarParaLista;
+        window.buscarDispositivos = buscarDispositivos;
+        window.verDetalheDispositivo = verDetalheDispositivo;
+        window.salvarNome = salvarNome;
+        window.resetarNomesDispositivo = resetarNomesDispositivo;
+        window.enviarComando = enviarComando;
+        window.resetarTodosOsDados = resetarTodosOsDados;
+        window.moveToNext = function(current, nextId) {
+            if (current.value.length === 1) {
+                const next = document.getElementById(nextId);
+                if (next) next.focus();
+            }
+        };
     </script>
     
     <style>
+        /* SEU CSS COMPLETO AQUI - MANTENHA IGUAL AO ORIGINAL */
         * {
             margin: 0;
             padding: 0;
@@ -136,7 +996,7 @@
             --radius-xl: 32px;
             --radius-full: 9999px;
         }
-
+        
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: linear-gradient(135deg, rgba(0,0,0,0.85), rgba(0,0,0,0.7)), 
@@ -149,17 +1009,16 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
-
+        
         .container {
             max-width: 1200px;
             margin: 0 auto;
         }
-
-        /* Header moderno */
+        
         .app-header {
             margin-bottom: 24px;
         }
-
+        
         .app-header h1 {
             font-size: 28px;
             font-weight: 700;
@@ -170,15 +1029,14 @@
             margin-bottom: 4px;
             letter-spacing: -0.5px;
         }
-
+        
         .app-header .subtitle {
             color: var(--gray-300);
             font-size: 14px;
             font-weight: 400;
             letter-spacing: 0.5px;
         }
-
-        /* Card de login/registro */
+        
         .auth-card {
             max-width: 420px;
             margin: 40px auto;
@@ -189,32 +1047,31 @@
             box-shadow: var(--shadow-xl);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
-
+        
         .auth-card h2 {
             font-size: 24px;
             font-weight: 600;
             color: var(--gray-800);
             margin-bottom: 8px;
         }
-
+        
         .auth-card p {
             color: var(--gray-500);
             font-size: 14px;
             margin-bottom: 24px;
         }
-
-        /* Inputs modernos */
+        
         .input-group {
             display: flex;
             flex-direction: column;
             gap: 16px;
             margin-bottom: 16px;
         }
-
+        
         .input-wrapper {
             position: relative;
         }
-
+        
         .input-icon {
             position: absolute;
             left: 16px;
@@ -223,7 +1080,7 @@
             color: var(--gray-400);
             font-size: 16px;
         }
-
+        
         .input-field {
             width: 100%;
             padding: 16px 16px 16px 48px;
@@ -235,27 +1092,26 @@
             color: var(--gray-800);
             transition: all 0.2s ease;
         }
-
+        
         .input-field:focus {
             outline: none;
             border-color: var(--primary);
             background: white;
             box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
         }
-
+        
         .input-field::placeholder {
             color: var(--gray-400);
             font-weight: 400;
         }
-
-        /* PIN inputs */
+        
         .pin-container {
             display: flex;
             gap: 12px;
             justify-content: center;
             margin: 16px 0;
         }
-
+        
         .pin-digit {
             width: 56px;
             height: 64px;
@@ -268,15 +1124,14 @@
             color: var(--primary);
             transition: all 0.2s ease;
         }
-
+        
         .pin-digit:focus {
             outline: none;
             border-color: var(--primary);
             background: white;
             box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
         }
-
-        /* Botões modernos */
+        
         .btn {
             display: inline-flex;
             align-items: center;
@@ -293,54 +1148,54 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-
+        
         .btn-primary {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
             box-shadow: var(--shadow-md);
         }
-
+        
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow-lg);
         }
-
+        
         .btn-primary:active {
             transform: translateY(0);
         }
-
+        
         .btn-outline {
             background: transparent;
             border: 2px solid var(--primary);
             color: var(--primary);
         }
-
+        
         .btn-outline:hover {
             background: var(--primary);
             color: white;
         }
-
+        
         .btn-alexa {
             background: var(--alexa);
             color: white;
             box-shadow: 0 4px 10px rgba(0,161,201,0.3);
         }
-
+        
         .btn-alexa:hover {
             background: var(--alexa-dark);
             transform: translateY(-2px);
             box-shadow: 0 6px 15px rgba(0,161,201,0.4);
         }
-
+        
         .btn-danger {
             background: var(--danger);
             color: white;
         }
-
+        
         .btn-danger:hover {
             background: var(--danger-dark);
         }
-
+        
         .btn-link {
             background: transparent;
             color: var(--gray-500);
@@ -349,12 +1204,12 @@
             text-transform: none;
             letter-spacing: normal;
         }
-
+        
         .btn-link:hover {
             color: var(--primary);
             text-decoration: underline;
         }
-
+        
         .btn-small {
             padding: 8px 16px;
             font-size: 13px;
@@ -362,8 +1217,7 @@
             width: auto;
             text-transform: none;
         }
-
-        /* Header do dashboard */
+        
         .dashboard-header {
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(10px);
@@ -376,13 +1230,13 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: var(--shadow);
         }
-
+        
         .user-section {
             display: flex;
             align-items: center;
             gap: 16px;
         }
-
+        
         .user-avatar {
             width: 48px;
             height: 48px;
@@ -397,16 +1251,16 @@
             transition: transform 0.2s;
             box-shadow: var(--shadow);
         }
-
+        
         .user-avatar:hover {
             transform: scale(1.05);
         }
-
+        
         .user-info-text {
             display: flex;
             flex-direction: column;
         }
-
+        
         .user-info-label {
             font-size: 12px;
             color: var(--gray-500);
@@ -414,25 +1268,24 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-
+        
         .user-info-name {
             font-size: 16px;
             font-weight: 600;
             color: var(--gray-800);
         }
-
+        
         .header-actions {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-
-        /* App card (igual ao index) */
+        
         .app-link {
             text-decoration: none;
             display: block;
         }
-
+        
         .app-card {
             background: white;
             border-radius: 30px;
@@ -444,24 +1297,24 @@
             border: 1px solid #eef2f6;
             transition: transform 0.2s;
         }
-
+        
         .app-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
-
+        
         .app-icone {
             width: 36px;
             height: 36px;
             border-radius: 8px;
             object-fit: cover;
         }
-
+        
         .app-info {
             display: flex;
             flex-direction: column;
         }
-
+        
         .app-info h3 {
             font-size: 14px;
             font-weight: 600;
@@ -469,7 +1322,7 @@
             margin: 0;
             line-height: 1.2;
         }
-
+        
         .app-info p {
             font-size: 11px;
             color: var(--alexa);
@@ -479,12 +1332,11 @@
             align-items: center;
             gap: 2px;
         }
-
+        
         .app-info p i {
             font-size: 8px;
         }
-
-        /* QR Code card */
+        
         .qrcode-card {
             background: white;
             border-radius: var(--radius-xl);
@@ -493,18 +1345,18 @@
             text-align: center;
             box-shadow: var(--shadow-lg);
         }
-
+        
         .qrcode-card h3 {
             font-size: 20px;
             color: var(--gray-800);
             margin-bottom: 8px;
         }
-
+        
         .qrcode-card p {
             color: var(--gray-500);
             margin-bottom: 24px;
         }
-
+        
         .qrcode-container {
             background: var(--gray-100);
             padding: 24px;
@@ -512,7 +1364,7 @@
             display: inline-block;
             margin-bottom: 20px;
         }
-
+        
         .qrcode-info {
             background: var(--primary-light);
             color: white;
@@ -521,20 +1373,19 @@
             font-size: 14px;
             text-align: left;
         }
-
+        
         .qrcode-info strong {
             display: inline-block;
             min-width: 60px;
         }
-
-        /* Grid de dispositivos */
+        
         .devices-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 20px;
         }
-
+        
         .devices-header h2 {
             font-size: 18px;
             font-weight: 600;
@@ -542,13 +1393,13 @@
             text-transform: uppercase;
             letter-spacing: 1px;
         }
-
+        
         .devices-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 20px;
         }
-
+        
         .device-card {
             background: white;
             border-radius: var(--radius-xl);
@@ -558,20 +1409,20 @@
             border: 2px solid transparent;
             box-shadow: var(--shadow);
         }
-
+        
         .device-card:hover {
             transform: translateY(-4px);
             border-color: var(--primary);
             box-shadow: var(--shadow-lg);
         }
-
+        
         .device-header {
             display: flex;
             align-items: center;
             gap: 16px;
             margin-bottom: 16px;
         }
-
+        
         .device-icon {
             width: 56px;
             height: 56px;
@@ -583,24 +1434,24 @@
             color: white;
             font-size: 24px;
         }
-
+        
         .device-info {
             flex: 1;
         }
-
+        
         .device-name {
             font-size: 16px;
             font-weight: 600;
             color: var(--gray-800);
             margin-bottom: 4px;
         }
-
+        
         .device-id {
             font-size: 12px;
             color: var(--gray-500);
             font-family: monospace;
         }
-
+        
         .device-stats {
             display: flex;
             gap: 16px;
@@ -608,13 +1459,12 @@
             font-size: 13px;
             font-weight: 500;
         }
-
+        
         .device-stats i {
             margin-right: 6px;
             color: var(--primary);
         }
-
-        /* Pinos (relés) */
+        
         .device-detail-card {
             background: white;
             border-radius: var(--radius-xl);
@@ -622,14 +1472,14 @@
             margin-bottom: 24px;
             box-shadow: var(--shadow);
         }
-
+        
         .device-title {
             font-size: 24px;
             font-weight: 700;
             color: var(--gray-800);
             margin-bottom: 8px;
         }
-
+        
         .device-meta {
             display: flex;
             gap: 20px;
@@ -637,27 +1487,27 @@
             font-size: 14px;
             margin-bottom: 20px;
         }
-
+        
         .pins-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
             gap: 16px;
         }
-
+        
         .pin-card {
             background: var(--gray-100);
             border-radius: var(--radius-lg);
             padding: 16px;
             transition: all 0.2s;
         }
-
+        
         .pin-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 16px;
         }
-
+        
         .pin-gpio {
             background: white;
             color: var(--primary);
@@ -671,7 +1521,7 @@
             font-size: 16px;
             box-shadow: var(--shadow-sm);
         }
-
+        
         .pin-name-input {
             background: white;
             border: 2px solid transparent;
@@ -682,13 +1532,13 @@
             width: 140px;
             transition: all 0.2s;
         }
-
+        
         .pin-name-input:focus {
             outline: none;
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
         }
-
+        
         .pin-badge {
             font-size: 12px;
             font-weight: 600;
@@ -697,7 +1547,7 @@
             background: white;
             color: var(--primary);
         }
-
+        
         .pin-state {
             display: inline-block;
             padding: 6px 14px;
@@ -705,23 +1555,23 @@
             font-size: 13px;
             font-weight: 600;
         }
-
+        
         .state-on {
             background: rgba(16, 185, 129, 0.15);
             color: var(--success-dark);
         }
-
+        
         .state-off {
             background: rgba(239, 68, 68, 0.15);
             color: var(--danger-dark);
         }
-
+        
         .pin-controls {
             display: flex;
             gap: 10px;
             margin-top: 16px;
         }
-
+        
         .btn-pin {
             flex: 1;
             padding: 12px;
@@ -734,25 +1584,25 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-
+        
         .btn-on {
             background: var(--success);
             color: white;
         }
-
+        
         .btn-on:hover {
             background: var(--success-dark);
         }
-
+        
         .btn-off {
             background: var(--gray-400);
             color: white;
         }
-
+        
         .btn-off:hover {
             background: var(--gray-500);
         }
-
+        
         .btn-save-name {
             background: transparent;
             border: 2px solid var(--primary);
@@ -764,12 +1614,12 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-
+        
         .btn-save-name:hover {
             background: var(--primary);
             color: white;
         }
-
+        
         .btn-reset {
             background: var(--gray-500);
             color: white;
@@ -781,11 +1631,11 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-
+        
         .btn-reset:hover {
             background: var(--gray-600);
         }
-
+        
         .back-button {
             background: transparent;
             border: 2px solid var(--primary);
@@ -801,13 +1651,12 @@
             align-items: center;
             gap: 8px;
         }
-
+        
         .back-button:hover {
             background: var(--primary);
             color: white;
         }
-
-        /* Modais */
+        
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -821,7 +1670,7 @@
             justify-content: center;
             z-index: 10000;
         }
-
+        
         .modal-card {
             background: white;
             border-radius: var(--radius-xl);
@@ -832,15 +1681,14 @@
             overflow-y: auto;
             box-shadow: var(--shadow-xl);
         }
-
+        
         .modal-card h3 {
             font-size: 24px;
             font-weight: 700;
             color: var(--gray-800);
             margin-bottom: 20px;
         }
-
-        /* Feedback messages */
+        
         .feedback-message {
             padding: 16px;
             border-radius: var(--radius);
@@ -850,25 +1698,25 @@
             display: none;
             animation: slideIn 0.3s;
         }
-
+        
         .feedback-error {
             background: #fee2e2;
             color: var(--danger-dark);
             border-left: 4px solid var(--danger);
         }
-
+        
         .feedback-success {
             background: #d1fae5;
             color: var(--success-dark);
             border-left: 4px solid var(--success);
         }
-
+        
         .feedback-warning {
             background: #fff3cd;
             color: #856404;
             border-left: 4px solid var(--warning);
         }
-
+        
         .toast-success {
             position: fixed;
             top: 20px;
@@ -886,12 +1734,12 @@
             animation: slideInRight 0.3s;
             border-left: 4px solid var(--success);
         }
-
+        
         .toast-success i {
             color: var(--success);
             font-size: 20px;
         }
-
+        
         @keyframes slideIn {
             from {
                 opacity: 0;
@@ -902,7 +1750,7 @@
                 transform: translateY(0);
             }
         }
-
+        
         @keyframes slideInRight {
             from {
                 opacity: 0;
@@ -913,8 +1761,7 @@
                 transform: translateX(0);
             }
         }
-
-        /* Loading */
+        
         .loading-spinner {
             width: 48px;
             height: 48px;
@@ -924,12 +1771,11 @@
             animation: spin 1s linear infinite;
             margin: 20px auto;
         }
-
+        
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
-
-        /* Responsividade */
+        
         @media (max-width: 640px) {
             body { padding: 12px; }
             
@@ -973,14 +1819,13 @@
             <h1>IOTESP</h1>
             <p class="subtitle">SMART CONTROL</p>
         </div>
-
+        
         <!-- TELA DE LOGIN/CADASTRO -->
         <div id="email-screen">
             <div class="auth-card">
                 <h2>Bem-vindo</h2>
-                <p>Faça login ou crie sua conta</p>
+                <p>Crie sua conta ou faça login</p>
                 
-                <!-- Mensagens de feedback -->
                 <div id="mensagem-feedback" class="feedback-message"></div>
                 
                 <div class="input-group">
@@ -994,7 +1839,6 @@
                         <input type="password" id="senha-input" class="input-field" placeholder="senha (6 dígitos)" maxlength="6" pattern="\d*" inputmode="numeric">
                     </div>
                     
-                    <!-- Campos de cadastro -->
                     <div id="cadastro-fields" style="display: none;">
                         <div class="input-wrapper">
                             <i class="fas fa-lock input-icon"></i>
@@ -1010,7 +1854,7 @@
                             <input type="text" id="pin1" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'pin2')">
                             <input type="text" id="pin2" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'pin3')">
                             <input type="text" id="pin3" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'pin4')">
-                            <input type="text" id="pin4" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric" oninput="moveToNext(this, 'confirmar')">
+                            <input type="text" id="pin4" class="pin-digit" maxlength="1" pattern="\d*" inputmode="numeric">
                         </div>
                         
                         <div id="erro-confirmacao" class="feedback-message feedback-error" style="display: none;">
@@ -1035,22 +1879,20 @@
                 </div>
             </div>
         </div>
-
+        
         <!-- DASHBOARD PRINCIPAL -->
         <div id="dashboard-screen" style="display: none;">
-            <!-- Header do dashboard -->
             <div class="dashboard-header">
                 <div class="user-section">
                     <div class="user-avatar" onclick="mostrarPerfil()">
                         <i class="fas fa-user"></i>
                     </div>
                     <div class="user-info-text">
-                        <span class="user-info-label">DADOS DO USUÁRIO</span>
-                        <span class="user-info-name"> </span>
+                        <span class="user-info-label">USUÁRIO</span>
+                        <span class="user-info-name"></span>
                     </div>
                 </div>
                 <div class="header-actions">
-                    <!-- CARD DA ALEXA IGUALZINHO AO INDEX - HABILITAR SKILL -->
                     <a href="amzn://apps/android?asin=B0GBXWW82S" 
                        onclick="window.location.href='https://alexa.amazon.com.br/spa/index.html#skills/dp/B0GBXWW82S'; return false;" 
                        class="app-link">
@@ -1068,29 +1910,24 @@
                     </button>
                 </div>
             </div>
-
-            <!-- QR CODE INICIAL -->
+            
             <div id="qrcode-inicial" class="qrcode-card" style="display: none;">
                 <h3>🔐 Suas Credenciais</h3>
                 <p>Guarde este QR code com segurança</p>
-                
                 <div class="qrcode-container">
                     <div id="qrcode-inicial-img"></div>
                 </div>
-                
                 <div class="qrcode-info">
                     <p><strong>Email:</strong> <span id="qrcode-email"></span></p>
                     <p><strong>Senha:</strong> <span id="qrcode-senha"></span></p>
                     <p><strong>PIN:</strong> <span id="qrcode-pin"></span></p>
                 </div>
-                
                 <button class="btn btn-primary" onclick="fecharQRCodeInicial()" style="margin-top: 20px;">
                     <i class="fas fa-arrow-right"></i>
                     continuar para dispositivos
                 </button>
             </div>
-
-            <!-- LISTA DE DISPOSITIVOS -->
+            
             <div id="devices-screen" style="display: none;">
                 <div class="devices-header">
                     <h2><i class="fas fa-microchip" style="margin-right: 8px;"></i> MEUS DISPOSITIVOS</h2>
@@ -1100,11 +1937,10 @@
                     <div class="loading-spinner"></div>
                     <p style="color: var(--gray-300); margin-top: 16px;">carregando dispositivos...</p>
                 </div>
-
+                
                 <div id="devices-container" class="devices-list" style="display: none;"></div>
             </div>
-
-            <!-- DETALHE DO DISPOSITIVO -->
+            
             <div id="device-screen" style="display: none;">
                 <button class="back-button" onclick="voltarParaLista()">
                     <i class="fas fa-arrow-left"></i>
@@ -1115,17 +1951,16 @@
                     <div class="loading-spinner"></div>
                     <p style="color: var(--gray-300); margin-top: 16px;">carregando...</p>
                 </div>
-
+                
                 <div id="device-detail" style="display: none;"></div>
             </div>
         </div>
     </div>
-
+    
     <!-- MODAL PERFIL -->
     <div id="perfil-modal" class="modal-overlay" style="display: none;">
         <div class="modal-card">
-            <h3><i class="fas fa-user-circle" style="color: var(--primary); margin-right: 8px;"></i> Dados do Usuário</h3>
-            
+            <h3><i class="fas fa-user-circle" style="color: var(--primary); margin-right: 8px;"></i> Meus Dados</h3>
             <div style="background: var(--gray-100); padding: 20px; border-radius: var(--radius); margin-bottom: 20px;">
                 <p style="margin: 12px 0; display: flex; align-items: center; gap: 8px;">
                     <i class="fas fa-envelope" style="color: var(--primary); width: 24px;"></i>
@@ -1141,7 +1976,6 @@
                 </p>
             </div>
             
-            <!-- LINK DA ALEXA NO MODAL PERFIL - COM HABILITAR SKILL -->
             <a href="amzn://apps/android?asin=B0GBXWW82S" 
                onclick="window.location.href='https://alexa.amazon.com.br/spa/index.html#skills/dp/B0GBXWW82S'; return false;"
                class="btn btn-outline" 
@@ -1161,33 +1995,29 @@
             </button>
         </div>
     </div>
-
+    
     <!-- MODAL QR CODE -->
     <div id="qrcode-modal" class="modal-overlay" style="display: none;">
         <div class="modal-card">
             <h3><i class="fas fa-qrcode" style="color: var(--primary);"></i> QR Code</h3>
-            
             <div style="background: var(--gray-100); padding: 24px; border-radius: var(--radius); text-align: center; margin-bottom: 20px;">
                 <div id="qrcode-modal-img"></div>
             </div>
-            
-            <div id="qrcode-modal-info" style="background: var(--primary-light); color: white; padding: 16px; border-radius: var(--radius); margin-bottom: 20px;">
-            </div>
-            
+            <div id="qrcode-modal-info" style="background: var(--primary-light); color: white; padding: 16px; border-radius: var(--radius); margin-bottom: 20px;"></div>
             <button class="btn btn-primary" onclick="fecharQRCodeModal()">
                 <i class="fas fa-times"></i>
                 fechar
             </button>
         </div>
     </div>
-
+    
     <!-- MODAL RECUPERAR SENHA -->
     <div id="recuperar-modal" class="modal-overlay" style="display: none;">
         <div class="modal-card">
             <h3><i class="fas fa-key" style="color: var(--primary);"></i> Recuperar Acesso</h3>
             
             <div id="recuperar-passo1">
-                <p style="color: var(--gray-600); margin-bottom: 20px;">digite seu email e PIN de recuperação</p>
+                <p style="color: var(--gray-600); margin-bottom: 20px;">Digite seu email e PIN de recuperação</p>
                 
                 <div class="input-wrapper" style="margin-bottom: 16px;">
                     <i class="fas fa-envelope input-icon"></i>
@@ -1217,9 +2047,7 @@
             </div>
             
             <div id="recuperar-passo2" style="display: none;">
-                <div id="recuperar-info" style="background: var(--success); color: white; padding: 20px; border-radius: var(--radius); margin-bottom: 20px;">
-                </div>
-                
+                <div id="recuperar-info" style="background: var(--success); color: white; padding: 20px; border-radius: var(--radius); margin-bottom: 20px;"></div>
                 <button class="btn btn-primary" onclick="fecharModalRecuperarEVoltar()">
                     <i class="fas fa-arrow-left"></i>
                     voltar ao login
@@ -1227,707 +2055,5 @@
             </div>
         </div>
     </div>
-
-    <script>
-        // ===== FUNÇÕES DE UTILIDADE =====
-        function moveToNext(current, nextId) {
-            if (current.value.length === 1) {
-                const next = document.getElementById(nextId);
-                if (next) next.focus();
-            }
-        }
-
-        function mostrarFeedback(mensagem, tipo) {
-            const feedbackEl = document.getElementById('mensagem-feedback');
-            feedbackEl.textContent = mensagem;
-            feedbackEl.className = `feedback-message feedback-${tipo}`;
-            feedbackEl.style.display = 'block';
-            
-            setTimeout(() => {
-                feedbackEl.style.display = 'none';
-            }, 4000);
-        }
-
-        function mostrarSucesso(mensagem) {
-            const toast = document.createElement('div');
-            toast.className = 'toast-success';
-            toast.innerHTML = `<i class="fas fa-check-circle"></i> ${mensagem}`;
-            document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.remove();
-            }, 2000);
-        }
-
-        // ===== GERENCIAMENTO DE USUÁRIOS =====
-        function carregarUsuarios() {
-            try {
-                if (isMedianApp && window.NativeDatastore) {
-                    const usuariosStr = localStorage.getItem('iotesp_usuarios') || '{}';
-                    return JSON.parse(usuariosStr);
-                } else {
-                    return JSON.parse(localStorage.getItem('iotesp_usuarios') || '{}');
-                }
-            } catch (e) {
-                console.error('Erro ao carregar usuários:', e);
-                return {};
-            }
-        }
-
-        function salvarUsuarios(usuarios) {
-            try {
-                const usuariosStr = JSON.stringify(usuarios);
-                if (isMedianApp && window.NativeDatastore) {
-                    localStorage.setItem('iotesp_usuarios', usuariosStr);
-                } else {
-                    localStorage.setItem('iotesp_usuarios', usuariosStr);
-                }
-                return true;
-            } catch (e) {
-                console.error('Erro ao salvar usuários:', e);
-                return false;
-            }
-        }
-
-        function emailExiste(email) {
-            const usuarios = carregarUsuarios();
-            return usuarios.hasOwnProperty(email);
-        }
-
-        function verificarCredenciais(email, senha) {
-            const usuarios = carregarUsuarios();
-            return usuarios[email] && usuarios[email].senha === senha;
-        }
-
-        function verificarPin(email, pin) {
-            const usuarios = carregarUsuarios();
-            return usuarios[email] && usuarios[email].pin === pin;
-        }
-
-        function getUsuario(email) {
-            const usuarios = carregarUsuarios();
-            return usuarios[email];
-        }
-
-        // ===== FUNÇÕES DE QR CODE =====
-        function gerarQRCode(elementId, texto) {
-            const element = document.getElementById(elementId);
-            element.innerHTML = '';
-            QRCode.toCanvas(element, texto, { width: 200 }, function(error) {
-                if (error) console.error(error);
-            });
-        }
-
-        function mostrarQRCodeInicial() {
-            document.getElementById('qrcode-email').textContent = clienteEmail;
-            document.getElementById('qrcode-senha').textContent = clienteSenha;
-            document.getElementById('qrcode-pin').textContent = clientePin;
-            
-            const dadosQR = `IOTESP LOGIN\nEmail: ${clienteEmail}\nSenha: ${clienteSenha}\nPIN: ${clientePin}`;
-            gerarQRCode('qrcode-inicial-img', dadosQR);
-        }
-
-        function fecharQRCodeInicial() {
-            document.getElementById('qrcode-inicial').style.display = 'none';
-            document.getElementById('devices-screen').style.display = 'block';
-        }
-
-        function mostrarQRCodeModal() {
-            fecharModal();
-            
-            const dadosQR = `IOTESP LOGIN\nEmail: ${clienteEmail}\nSenha: ${clienteSenha}\nPIN: ${clientePin}`;
-            gerarQRCode('qrcode-modal-img', dadosQR);
-            
-            document.getElementById('qrcode-modal-info').innerHTML = `
-                <p><strong>Email:</strong> ${clienteEmail}</p>
-                <p><strong>Senha:</strong> ${clienteSenha}</p>
-                <p><strong>PIN:</strong> ${clientePin}</p>
-            `;
-            
-            document.getElementById('qrcode-modal').style.display = 'flex';
-        }
-
-        function fecharQRCodeModal() {
-            document.getElementById('qrcode-modal').style.display = 'none';
-        }
-
-        // ===== TOGGLE CADASTRO =====
-        function toggleCadastro() {
-            modoCadastro = !modoCadastro;
-            const cadastroFields = document.getElementById('cadastro-fields');
-            const btnCadastrar = document.getElementById('btn-cadastrar');
-            
-            if (modoCadastro) {
-                cadastroFields.style.display = 'block';
-                btnCadastrar.innerHTML = '<i class="fas fa-times"></i> cancelar cadastro';
-                btnCadastrar.classList.remove('btn-outline');
-                btnCadastrar.classList.add('btn-danger');
-            } else {
-                cadastroFields.style.display = 'none';
-                btnCadastrar.innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
-                btnCadastrar.classList.remove('btn-danger');
-                btnCadastrar.classList.add('btn-outline');
-                
-                document.getElementById('confirmar-senha-input').value = '';
-                document.getElementById('pin1').value = '';
-                document.getElementById('pin2').value = '';
-                document.getElementById('pin3').value = '';
-                document.getElementById('pin4').value = '';
-                document.getElementById('erro-confirmacao').style.display = 'none';
-            }
-        }
-
-        // ===== LOGIN/CADASTRO =====
-        async function fazerCadastro() {
-            const email = document.getElementById('email-input').value.trim();
-            const senha = document.getElementById('senha-input').value.trim();
-            const confirmarSenha = document.getElementById('confirmar-senha-input').value.trim();
-            const pin1 = document.getElementById('pin1').value;
-            const pin2 = document.getElementById('pin2').value;
-            const pin3 = document.getElementById('pin3').value;
-            const pin4 = document.getElementById('pin4').value;
-            const pin = pin1 + pin2 + pin3 + pin4;
-            
-            if (!email || !email.includes('@')) {
-                mostrarFeedback('email inválido', 'error');
-                return;
-            }
-
-            if (!senha || senha.length !== 6 || !/^\d+$/.test(senha)) {
-                mostrarFeedback('senha deve ter 6 dígitos', 'error');
-                return;
-            }
-
-            if (senha !== confirmarSenha) {
-                document.getElementById('erro-confirmacao').style.display = 'block';
-                return;
-            }
-
-            if (!pin1 || !pin2 || !pin3 || !pin4 || pin.length !== 4 || !/^\d+$/.test(pin)) {
-                mostrarFeedback('PIN deve ter 4 dígitos', 'error');
-                return;
-            }
-
-            if (emailExiste(email)) {
-                mostrarFeedback('email já cadastrado', 'error');
-                return;
-            }
-
-            document.getElementById('erro-confirmacao').style.display = 'none';
-            
-            // Salvar usuário
-            const usuarios = carregarUsuarios();
-            usuarios[email] = { senha, pin };
-            salvarUsuarios(usuarios);
-            
-            // Salvar sessão
-            await Storage.set('iotesp_email', email);
-            await Storage.set('iotesp_senha', senha);
-            await Storage.set('iotesp_pin', pin);
-            await Storage.set('iotesp_logado', 'true');
-            await Storage.set('iotesp_mostrou_qrcode', 'false');
-            
-            clienteEmail = email;
-            clienteSenha = senha;
-            clientePin = pin;
-            
-            document.getElementById('email-screen').style.display = 'none';
-            document.getElementById('dashboard-screen').style.display = 'block';
-            
-            modoCadastro = false;
-            document.getElementById('cadastro-fields').style.display = 'none';
-            document.getElementById('btn-cadastrar').innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
-            document.getElementById('btn-cadastrar').classList.remove('btn-danger');
-            document.getElementById('btn-cadastrar').classList.add('btn-outline');
-            
-            // Mostrar QR Code inicial
-            document.getElementById('qrcode-inicial').style.display = 'block';
-            document.getElementById('devices-screen').style.display = 'none';
-            mostrarQRCodeInicial();
-            
-            mostrarSucesso('Cadastro realizado!');
-        }
-
-        async function fazerLogin() {
-            if (modoCadastro) {
-                fazerCadastro();
-                return;
-            }
-
-            const email = document.getElementById('email-input').value.trim();
-            const senha = document.getElementById('senha-input').value.trim();
-            
-            if (!email || !email.includes('@')) {
-                mostrarFeedback('email inválido', 'error');
-                return;
-            }
-
-            if (!senha || senha.length !== 6 || !/^\d+$/.test(senha)) {
-                mostrarFeedback('senha deve ter 6 dígitos', 'error');
-                return;
-            }
-
-            if (!emailExiste(email)) {
-                mostrarFeedback('email não cadastrado', 'error');
-                return;
-            }
-
-            if (!verificarCredenciais(email, senha)) {
-                mostrarFeedback('senha incorreta', 'error');
-                return;
-            }
-
-            const usuario = getUsuario(email);
-            
-            await Storage.set('iotesp_email', email);
-            await Storage.set('iotesp_senha', senha);
-            await Storage.set('iotesp_pin', usuario.pin);
-            await Storage.set('iotesp_logado', 'true');
-            
-            clienteEmail = email;
-            clienteSenha = senha;
-            clientePin = usuario.pin;
-            
-            document.getElementById('email-screen').style.display = 'none';
-            document.getElementById('dashboard-screen').style.display = 'block';
-            
-            // Verificar se já mostrou QR code antes
-            const mostrouQR = await Storage.get('iotesp_mostrou_qrcode');
-            
-            if (mostrouQR !== 'true') {
-                document.getElementById('qrcode-inicial').style.display = 'block';
-                document.getElementById('devices-screen').style.display = 'none';
-                mostrarQRCodeInicial();
-                await Storage.set('iotesp_mostrou_qrcode', 'true');
-            } else {
-                document.getElementById('qrcode-inicial').style.display = 'none';
-                document.getElementById('devices-screen').style.display = 'block';
-                buscarDispositivos();
-            }
-            
-            mostrarSucesso('Login realizado!');
-        }
-
-        async function fazerLogout() {
-            await Storage.remove('iotesp_email');
-            await Storage.remove('iotesp_senha');
-            await Storage.remove('iotesp_pin');
-            await Storage.remove('iotesp_logado');
-            
-            clienteEmail = '';
-            clienteSenha = '';
-            clientePin = '';
-            dispositivosCliente = [];
-            
-            document.getElementById('email-screen').style.display = 'block';
-            document.getElementById('dashboard-screen').style.display = 'none';
-            document.getElementById('email-input').value = '';
-            document.getElementById('senha-input').value = '';
-            document.getElementById('confirmar-senha-input').value = '';
-            document.getElementById('pin1').value = '';
-            document.getElementById('pin2').value = '';
-            document.getElementById('pin3').value = '';
-            document.getElementById('pin4').value = '';
-            
-            modoCadastro = false;
-            document.getElementById('cadastro-fields').style.display = 'none';
-            document.getElementById('btn-cadastrar').innerHTML = '<i class="fas fa-user-plus"></i> cadastrar';
-            document.getElementById('btn-cadastrar').classList.remove('btn-danger');
-            document.getElementById('btn-cadastrar').classList.add('btn-outline');
-        }
-
-        // ===== PERFIL =====
-        function mostrarPerfil() {
-            document.getElementById('perfil-email').textContent = clienteEmail;
-            document.getElementById('perfil-senha').textContent = clienteSenha;
-            document.getElementById('perfil-pin').textContent = clientePin;
-            document.getElementById('perfil-modal').style.display = 'flex';
-        }
-
-        function fecharModal() {
-            document.getElementById('perfil-modal').style.display = 'none';
-        }
-
-        // ===== RECUPERAR SENHA =====
-        function mostrarRecuperarSenha() {
-            document.getElementById('recuperar-modal').style.display = 'flex';
-            document.getElementById('recuperar-passo1').style.display = 'block';
-            document.getElementById('recuperar-passo2').style.display = 'none';
-            document.getElementById('recuperar-email').value = '';
-            document.getElementById('rec-pin1').value = '';
-            document.getElementById('rec-pin2').value = '';
-            document.getElementById('rec-pin3').value = '';
-            document.getElementById('rec-pin4').value = '';
-        }
-
-        function fecharModalRecuperar() {
-            document.getElementById('recuperar-modal').style.display = 'none';
-        }
-
-        function fecharModalRecuperarEVoltar() {
-            document.getElementById('recuperar-modal').style.display = 'none';
-            document.getElementById('recuperar-passo1').style.display = 'block';
-            document.getElementById('recuperar-passo2').style.display = 'none';
-        }
-
-        function verificarPinRecuperar() {
-            const email = document.getElementById('recuperar-email').value.trim();
-            const pin1 = document.getElementById('rec-pin1').value;
-            const pin2 = document.getElementById('rec-pin2').value;
-            const pin3 = document.getElementById('rec-pin3').value;
-            const pin4 = document.getElementById('rec-pin4').value;
-            const pin = pin1 + pin2 + pin3 + pin4;
-            
-            if (!email || !email.includes('@')) {
-                mostrarFeedback('email inválido', 'error');
-                return;
-            }
-
-            if (!pin1 || !pin2 || !pin3 || !pin4 || pin.length !== 4 || !/^\d+$/.test(pin)) {
-                mostrarFeedback('PIN deve ter 4 dígitos', 'error');
-                return;
-            }
-
-            if (!emailExiste(email)) {
-                mostrarFeedback('email não cadastrado', 'error');
-                return;
-            }
-
-            if (!verificarPin(email, pin)) {
-                mostrarFeedback('PIN incorreto', 'error');
-                return;
-            }
-
-            const usuario = getUsuario(email);
-            
-            document.getElementById('recuperar-info').innerHTML = `
-                <p><strong>Email:</strong> ${email}</p>
-                <p><strong>Senha:</strong> ${usuario.senha}</p>
-                <p style="margin-top: 12px; font-size: 13px;">use esta senha para fazer login</p>
-            `;
-            
-            document.getElementById('recuperar-passo1').style.display = 'none';
-            document.getElementById('recuperar-passo2').style.display = 'block';
-        }
-
-        // ===== VERIFICAR SESSÃO AO CARREGAR =====
-        async function verificarSessao() {
-            const email = await Storage.get('iotesp_email');
-            const senha = await Storage.get('iotesp_senha');
-            const pin = await Storage.get('iotesp_pin');
-            const logado = await Storage.get('iotesp_logado');
-            
-            console.log('Verificando sessão:', { email, logado });
-            
-            if (logado === 'true' && email && senha && verificarCredenciais(email, senha)) {
-                clienteEmail = email;
-                clienteSenha = senha;
-                clientePin = pin;
-                
-                document.getElementById('email-screen').style.display = 'none';
-                document.getElementById('dashboard-screen').style.display = 'block';
-                
-                // Verificar se já mostrou QR code
-                const mostrouQR = await Storage.get('iotesp_mostrou_qrcode');
-                
-                if (mostrouQR !== 'true') {
-                    document.getElementById('qrcode-inicial').style.display = 'block';
-                    document.getElementById('devices-screen').style.display = 'none';
-                    mostrarQRCodeInicial();
-                } else {
-                    document.getElementById('qrcode-inicial').style.display = 'none';
-                    document.getElementById('devices-screen').style.display = 'block';
-                    buscarDispositivos();
-                }
-            } else {
-                document.getElementById('email-screen').style.display = 'block';
-                document.getElementById('dashboard-screen').style.display = 'none';
-            }
-        }
-
-        // ===== FUNÇÕES DE UI =====
-        function mostrarTelaDevices() {
-            document.getElementById('devices-screen').style.display = 'block';
-            document.getElementById('device-screen').style.display = 'none';
-        }
-
-        function mostrarTelaDevice() {
-            document.getElementById('devices-screen').style.display = 'none';
-            document.getElementById('device-screen').style.display = 'block';
-        }
-
-        function voltarParaLista() {
-            mostrarTelaDevices();
-        }
-
-        function mostrarLoading(ativo) {
-            document.getElementById('loading').style.display = ativo ? 'block' : 'none';
-            document.getElementById('devices-container').style.display = ativo ? 'none' : 'block';
-        }
-
-        function mostrarDeviceLoading(ativo) {
-            document.getElementById('device-loading').style.display = ativo ? 'block' : 'none';
-            document.getElementById('device-detail').style.display = ativo ? 'none' : 'block';
-        }
-
-        // ===== BUSCAR DISPOSITIVOS =====
-        async function buscarDispositivos() {
-            mostrarTelaDevices();
-            mostrarLoading(true);
-
-            try {
-                const response = await fetch(API_BASE_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'getDevicesByEmail',
-                        email: clienteEmail
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error('Erro na API');
-                }
-
-                const dispositivos = await response.json();
-                
-                for (const dispositivo of dispositivos) {
-                    const pinsResponse = await fetch(API_BASE_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            action: 'getPinsByDevice',
-                            deviceId: dispositivo.deviceId
-                        })
-                    });
-                    
-                    if (pinsResponse.ok) {
-                        dispositivo.pins = await pinsResponse.json();
-                    } else {
-                        dispositivo.pins = [];
-                    }
-                }
-                
-                dispositivosCliente = dispositivos;
-                renderizarListaDispositivos(dispositivosCliente);
-
-            } catch (error) {
-                console.error('Erro:', error);
-                mostrarFeedback('falha ao carregar dispositivos', 'error');
-            } finally {
-                mostrarLoading(false);
-            }
-        }
-
-        // ===== RENDERIZAR LISTA =====
-        function renderizarListaDispositivos(dispositivos) {
-            const container = document.getElementById('devices-container');
-            container.innerHTML = '';
-
-            if (!dispositivos || dispositivos.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 50px; background: white; border-radius: var(--radius-xl);">
-                        <i class="fas fa-microchip" style="font-size: 48px; color: var(--gray-300); margin-bottom: 16px;"></i>
-                        <h3 style="color: var(--gray-600); margin-bottom: 8px;">nenhum dispositivo</h3>
-                        <p style="color: var(--gray-400);">${clienteEmail}</p>
-                    </div>
-                `;
-            } else {
-                const grid = document.createElement('div');
-                grid.className = 'devices-grid';
-
-                dispositivos.forEach(device => {
-                    const card = document.createElement('div');
-                    card.className = 'device-card';
-                    card.onclick = () => verDetalheDispositivo(device.deviceId);
-
-                    card.innerHTML = `
-                        <div class="device-header">
-                            <div class="device-icon">
-                                <i class="fas fa-microchip"></i>
-                            </div>
-                            <div class="device-info">
-                                <div class="device-name">${device.friendlyName || device.deviceId.slice(0, 10)}</div>
-                                <div class="device-id">${device.deviceId.slice(0, 16)}</div>
-                            </div>
-                        </div>
-                        <div class="device-stats">
-                            <span><i class="fas fa-plug"></i> ${device.pins?.length || 0} relés</span>
-                            <span><i class="fas fa-circle" style="color: var(--success);"></i> ativo</span>
-                        </div>
-                    `;
-
-                    grid.appendChild(card);
-                });
-
-                container.appendChild(grid);
-            }
-
-            container.style.display = 'block';
-        }
-
-        // ===== VER DETALHE DO DISPOSITIVO =====
-        function verDetalheDispositivo(deviceId) {
-            mostrarTelaDevice();
-            mostrarDeviceLoading(true);
-
-            const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
-            
-            if (dispositivo) {
-                setTimeout(() => {
-                    renderizarDetalheDispositivo(dispositivo);
-                    mostrarDeviceLoading(false);
-                }, 300);
-            } else {
-                mostrarFeedback('dispositivo não encontrado', 'error');
-                voltarParaLista();
-            }
-        }
-
-        // ===== RENDERIZAR DETALHE =====
-        function renderizarDetalheDispositivo(device) {
-            const container = document.getElementById('device-detail');
-
-            const pinosOrdenados = [...device.pins].sort((a, b) => a.pinNumber - b.pinNumber);
-
-            const pinsHtml = pinosOrdenados.map((pin, index) => {
-                const numeroRele = index + 1;
-                const nomePadrao = pin.pinName || `relé ${numeroRele}`;
-                const key = `nome_rele_${device.deviceId}_${pin.pinNumber}`;
-                const nomePersonalizado = localStorage.getItem(key) || nomePadrao;
-                
-                return `
-                <div class="pin-card">
-                    <div class="pin-header">
-                        <div class="pin-gpio">${pin.pinNumber}</div>
-                        <div>
-                            <span class="pin-badge">R${numeroRele}</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                        <input type="text" class="pin-name-input" id="nome_${device.deviceId}_${pin.pinNumber}" value="${nomePersonalizado}">
-                        <button class="btn-save-name" onclick="salvarNome('${device.deviceId}', ${pin.pinNumber})">
-                            <i class="fas fa-save"></i>
-                        </button>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <span class="pin-state ${pin.state === 1 ? 'state-on' : 'state-off'}">
-                            ${pin.state === 1 ? 'LIGADO' : 'DESLIGADO'}
-                        </span>
-                    </div>
-                    <div class="pin-controls">
-                        <button class="btn-pin btn-on" onclick="enviarComando('${device.deviceId}', ${pin.pinNumber}, 1)">
-                            <i class="fas fa-power-off"></i> ligar
-                        </button>
-                        <button class="btn-pin btn-off" onclick="enviarComando('${device.deviceId}', ${pin.pinNumber}, 0)">
-                            <i class="fas fa-power-off"></i> desligar
-                        </button>
-                    </div>
-                </div>
-            `}).join('');
-
-            container.innerHTML = `
-                <div class="device-detail-card">
-                    <h2 class="device-title">
-                        <i class="fas fa-microchip" style="color: var(--primary); margin-right: 8px;"></i>
-                        ${device.friendlyName || 'Dispositivo'}
-                    </h2>
-                    <div class="device-meta">
-                        <span><i class="fas fa-fingerprint"></i> ${device.deviceId.slice(0, 12)}</span>
-                        <span><i class="fas fa-plug"></i> ${device.pins.length} relés</span>
-                    </div>
-                    <button class="btn-reset" onclick="resetarNomesDispositivo('${device.deviceId}')">
-                        <i class="fas fa-undo-alt"></i> resetar nomes
-                    </button>
-                </div>
-                <div class="pins-grid">
-                    ${pinsHtml}
-                </div>
-            `;
-
-            container.style.display = 'block';
-        }
-
-        // ===== SALVAR NOME =====
-        function salvarNome(deviceId, pinNumber) {
-            const input = document.getElementById(`nome_${deviceId}_${pinNumber}`);
-            if (input) {
-                const novoNome = input.value.trim();
-                if (novoNome) {
-                    const key = `nome_rele_${deviceId}_${pinNumber}`;
-                    localStorage.setItem(key, novoNome);
-                    mostrarSucesso(`Nome salvo: ${novoNome}`);
-                }
-            }
-        }
-
-        function resetarNomesDispositivo(deviceId) {
-            const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
-            if (dispositivo) {
-                dispositivo.pins.forEach(pin => {
-                    const key = `nome_rele_${deviceId}_${pin.pinNumber}`;
-                    localStorage.removeItem(key);
-                });
-                mostrarSucesso('Nomes resetados');
-                renderizarDetalheDispositivo(dispositivo);
-            }
-        }
-
-        // ===== ENVIAR COMANDO =====
-        async function enviarComando(deviceId, pinNumber, state) {
-            try {
-                const dispositivo = dispositivosCliente.find(d => d.deviceId === deviceId);
-                if (!dispositivo) return;
-                
-                const pinIndex = dispositivo.pins.findIndex(p => p.pinNumber === pinNumber);
-                const numeroRele = pinIndex + 1;
-
-                const response = await fetch(API_BASE_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'update_state',
-                        device_id: deviceId,
-                        pin_states: {
-                            [`rele${numeroRele}`]: state
-                        }
-                    })
-                });
-
-                const resultado = await response.json();
-                
-                if (response.ok && resultado.success) {
-                    const pin = dispositivo.pins.find(p => p.pinNumber === pinNumber);
-                    if (pin) pin.state = state;
-                    
-                    const pinCards = document.querySelectorAll('.pin-card');
-                    pinCards.forEach((card, idx) => {
-                        if (idx === pinIndex) {
-                            const stateEl = card.querySelector('.pin-state');
-                            stateEl.textContent = state ? 'LIGADO' : 'DESLIGADO';
-                            stateEl.className = `pin-state ${state ? 'state-on' : 'state-off'}`;
-                        }
-                    });
-                    
-                    mostrarSucesso(state ? 'Ligado' : 'Desligado');
-                }
-            } catch (error) {
-                mostrarFeedback('erro de rede', 'error');
-            }
-        }
-
-        // ===== INICIALIZAÇÃO =====
-        window.onload = function() {
-            verificarSessao();
-            
-            window.onclick = function(event) {
-                if (event.target.classList.contains('modal-overlay')) {
-                    fecharModal();
-                    fecharQRCodeModal();
-                    fecharModalRecuperar();
-                }
-            };
-        };
-    </script>
 </body>
 </html>
